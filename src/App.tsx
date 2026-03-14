@@ -965,8 +965,12 @@ export default function App() {
           element.muted = true;
           element.playsInline = true;
           element.preload = 'auto';
+          element.crossOrigin = 'anonymous';
           await new Promise((resolve) => {
-            let timeout = setTimeout(() => resolve(null), 5000);
+            let timeout = setTimeout(() => {
+              alert(`[DEBUG video] Timeout! videoWidth=${(element as HTMLVideoElement).videoWidth} readyState=${(element as HTMLVideoElement).readyState} error=${(element as HTMLVideoElement).error?.message || 'none'} networkState=${(element as HTMLVideoElement).networkState} src=${url.substring(0, 60)}`);
+              resolve(null);
+            }, 10000);
             const checkReady = () => {
               if (width > 0) return;
               if ((element as HTMLVideoElement).videoWidth > 0) {
@@ -975,6 +979,7 @@ export default function App() {
                 height = (element as HTMLVideoElement).videoHeight;
                 itemDuration = (element as HTMLVideoElement).duration * 1000;
                 if (!itemDuration || !isFinite(itemDuration)) itemDuration = defaultDuration * 1000;
+                alert(`[DEBUG video] Loaded OK! ${width}x${height} duration=${itemDuration}ms`);
                 resolve(null);
               }
             };
@@ -983,7 +988,8 @@ export default function App() {
             element.addEventListener('canplay', checkReady);
             element.onerror = (e) => {
               clearTimeout(timeout);
-              console.error("Video load error", e);
+              const ve = (element as HTMLVideoElement).error;
+              alert(`[DEBUG video] Error! code=${ve?.code} msg=${ve?.message} type=${file.type} size=${file.size}`);
               resolve(null);
             };
             (element as HTMLVideoElement).load();
