@@ -822,6 +822,7 @@ export default function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('mp4');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [musicVolumeDuringVideo, setMusicVolumeDuringVideo] = useState(20); // 0-100%
   const [showTitleOverlay, setShowTitleOverlay] = useState(false);
 
   const [items, setItems] = useState<PlaylistItem[]>([]);
@@ -1196,47 +1197,70 @@ export default function App() {
       let audioCtx: AudioContext | null = null;
       let audioSource: AudioBufferSourceNode | null = null;
       let gainNode: GainNode | null = null;
+      const videoAudioSources: MediaElementAudioSourceNode[] = [];
 
-      if (audioUrl) {
+      // Check if any items are videos (need audio context for video sound)
+      const hasVideos = items.some(item => item.type === 'video');
+      const needsAudioCtx = audioUrl || hasVideos;
+
+      if (needsAudioCtx) {
         try {
-          // Use a standard sample rate for better compatibility
           audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
             sampleRate: 44100
           });
-          
+
           if (audioCtx.state === 'suspended') {
             await audioCtx.resume();
           }
           const dest = audioCtx.createMediaStreamDestination();
-          
-          const response = await fetch(audioUrl);
-          if (!response.ok) throw new Error(`Audio fetch failed: ${response.statusText}`);
-          const arrayBuffer = await response.arrayBuffer();
-          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-          
-          audioSource = audioCtx.createBufferSource();
-          audioSource.buffer = audioBuffer;
-          audioSource.loop = true;
-          
-          gainNode = audioCtx.createGain();
-          audioSource.connect(gainNode);
-          gainNode.connect(dest);
-          
-          // Also connect to destination so user can hear it during generation if they want
-          // audioSource.connect(audioCtx.destination); 
-          audioSource.start(0);
+
+          // Setup background music if present
+          if (audioUrl) {
+            const response = await fetch(audioUrl);
+            if (!response.ok) throw new Error(`Audio fetch failed: ${response.statusText}`);
+            const arrayBuffer = await response.arrayBuffer();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+            audioSource = audioCtx.createBufferSource();
+            audioSource.buffer = audioBuffer;
+            audioSource.loop = true;
+
+            gainNode = audioCtx.createGain();
+            audioSource.connect(gainNode);
+            gainNode.connect(dest);
+            audioSource.start(0);
+          }
+
+          // Connect video elements' audio to the mix
+          if (hasVideos) {
+            for (const item of items) {
+              if (item.type === 'video') {
+                const video = item.element as HTMLVideoElement;
+                video.muted = false; // Unmute for export
+                try {
+                  const source = audioCtx.createMediaElementSource(video);
+                  const videoGain = audioCtx.createGain();
+                  videoGain.gain.value = 1.0;
+                  source.connect(videoGain);
+                  videoGain.connect(dest);
+                  videoAudioSources.push(source);
+                } catch (err) {
+                  // MediaElementSource can only be created once per element
+                  console.warn('Could not capture video audio:', err);
+                }
+              }
+            }
+          }
 
           const audioTracks = dest.stream.getAudioTracks();
           const videoTracks = canvasStream.getVideoTracks();
-          
+
           if (audioTracks.length > 0 && videoTracks.length > 0) {
             finalStream = new MediaStream([
               videoTracks[0],
               audioTracks[0]
             ]);
           } else if (audioTracks.length > 0) {
-            console.warn("No video tracks found in canvas stream, but audio tracks found.");
-            // Fallback: try to add audio tracks to canvas stream
             audioTracks.forEach(track => canvasStream.addTrack(track));
             finalStream = canvasStream;
           }
@@ -1282,6 +1306,11 @@ export default function App() {
           audioSource.stop();
           audioSource.disconnect();
         }
+        videoAudioSources.forEach(s => s.disconnect());
+        // Re-mute videos after export
+        items.forEach(item => {
+          if (item.type === 'video') (item.element as HTMLVideoElement).muted = true;
+        });
         if (audioCtx) {
           audioCtx.close();
         }
@@ -1301,14 +1330,37 @@ export default function App() {
         return { start, end, duration: item.duration };
       });
 
-      // Schedule audio fade-out
+      // Schedule audio gain: duck during video slides, fade out at end
       if (gainNode && audioCtx) {
-        const fadeOutDuration = 2; // seconds
-        const videoDurationSec = totalDuration / 1000;
         const now = audioCtx.currentTime;
+        const videoDurationSec = totalDuration / 1000;
+        const duckedVolume = musicVolumeDuringVideo / 100;
+        const rampTime = 0.3; // 300ms ramp for smooth transitions
+
+        // Start at full volume
+        gainNode.gain.setValueAtTime(1.0, now);
+
+        // Schedule ducking for each video item
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type === 'video') {
+            const startSec = timings[i].start / 1000;
+            const endSec = timings[i].end / 1000;
+            // Ramp down to ducked volume at video start
+            gainNode.gain.setValueAtTime(gainNode.gain.value, now + Math.max(0, startSec - rampTime));
+            gainNode.gain.linearRampToValueAtTime(duckedVolume, now + startSec);
+            // Ramp back up at video end (unless next item is also video)
+            const nextIsVideo = i + 1 < items.length && items[i + 1].type === 'video';
+            if (!nextIsVideo) {
+              gainNode.gain.setValueAtTime(duckedVolume, now + endSec);
+              gainNode.gain.linearRampToValueAtTime(1.0, now + endSec + rampTime);
+            }
+          }
+        }
+
+        // Final fade-out
+        const fadeOutDuration = 2;
         const fadeOutStartTime = now + Math.max(0, videoDurationSec - fadeOutDuration);
-        
-        gainNode.gain.setValueAtTime(1, fadeOutStartTime);
+        gainNode.gain.setValueAtTime(gainNode.gain.value, fadeOutStartTime);
         gainNode.gain.linearRampToValueAtTime(0, now + videoDurationSec);
       }
 
@@ -1328,6 +1380,10 @@ export default function App() {
           audioSource.stop();
           audioSource.disconnect();
         }
+        videoAudioSources.forEach(s => s.disconnect());
+        items.forEach(item => {
+          if (item.type === 'video') (item.element as HTMLVideoElement).muted = true;
+        });
         if (audioCtx) {
           audioCtx.close();
         }
@@ -1688,6 +1744,7 @@ export default function App() {
         defaultDuration,
         exportFormat,
         showTitleOverlay,
+        musicVolumeDuringVideo,
         audioFile: audioFile || undefined,
         items: items.map(item => ({
           id: item.id,
@@ -1734,6 +1791,7 @@ export default function App() {
       setDefaultDuration(project.defaultDuration);
       setExportFormat(project.exportFormat);
       setShowTitleOverlay(project.showTitleOverlay);
+      setMusicVolumeDuringVideo(project.musicVolumeDuringVideo ?? 20);
       setCurrentProjectId(project.id || null);
       
       if (project.audioFile) {
@@ -2014,13 +2072,30 @@ export default function App() {
                   </button>
                 )}
               </div>
+              {audioFile && (
+                <div className="mt-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-zinc-400">Musiklaustärke bei Videos</label>
+                    <span className="text-xs text-zinc-500">{musicVolumeDuringVideo}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={musicVolumeDuringVideo}
+                    onChange={e => setMusicVolumeDuringVideo(Number(e.target.value))}
+                    className="w-full accent-indigo-500"
+                  />
+                  <p className="text-[11px] text-zinc-500">Senkt die Musik ab, damit der Video-Ton hörbar bleibt</p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 pt-2">
               <label className="flex items-center gap-3 cursor-pointer">
                 <div className="relative flex items-center">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={showTitleOverlay}
                     onChange={e => setShowTitleOverlay(e.target.checked)}
                     className="sr-only peer"
@@ -2822,13 +2897,30 @@ export default function App() {
                     </button>
                   )}
                 </div>
+                {audioFile && (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-zinc-400">Musiklaustärke bei Videos</label>
+                      <span className="text-xs text-zinc-500">{musicVolumeDuringVideo}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={musicVolumeDuringVideo}
+                      onChange={e => setMusicVolumeDuringVideo(Number(e.target.value))}
+                      className="w-full accent-indigo-500"
+                    />
+                    <p className="text-[11px] text-zinc-500">Senkt die Musik ab, damit der Video-Ton hörbar bleibt</p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2 pt-2">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <div className="relative flex items-center">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={showTitleOverlay}
                       onChange={e => setShowTitleOverlay(e.target.checked)}
                       className="sr-only peer"
