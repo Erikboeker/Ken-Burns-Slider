@@ -320,26 +320,28 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
   console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo);
 
-  // Try multiple URL formats - Picker API may differ from Library API
-  const urlsToTry = isVideo
-    ? [
-        photo.baseUrl,                // Raw baseUrl (Picker API)
-        `${photo.baseUrl}=dv`,        // Library API video download
-      ]
-    : [
-        `${photo.baseUrl}=d`,         // Library API full-res download
-        photo.baseUrl,                // Raw baseUrl
-      ];
+  // Try all URL formats for both video and image - Picker API behavior varies
+  const urlsToTry = [
+    photo.baseUrl,                  // Raw baseUrl (Picker API default)
+    `${photo.baseUrl}=d`,           // Full-res download
+    `${photo.baseUrl}=dv`,          // Video download variant
+    `${photo.baseUrl}=w0-h0`,      // Max size variant
+  ];
 
   for (const url of urlsToTry) {
     try {
-      console.log('[GooglePhotos] Trying URL:', url.substring(0, 80) + '...');
+      console.log('[GooglePhotos] Trying URL:', url.substring(0, 100));
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
+      console.log('[GooglePhotos] Response:', res.status, res.statusText, 'content-type:', res.headers.get('content-type'));
       if (res.ok) {
         const blob = await res.blob();
-        console.log('[GooglePhotos] Downloaded:', photo.filename, 'size:', blob.size, 'type:', blob.type);
+        console.log('[GooglePhotos] Downloaded:', photo.filename, 'size:', blob.size, 'blobType:', blob.type);
+        if (blob.size === 0) {
+          console.warn('[GooglePhotos] Empty blob, trying next URL');
+          continue;
+        }
         // Determine correct MIME type: prefer blob type, then photo metadata, then guess from filename
         let actualType = blob.type;
         if (!actualType || actualType === 'application/octet-stream') {
