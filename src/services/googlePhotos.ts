@@ -222,13 +222,28 @@ export async function listPhotos(
 }
 
 export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
+  if (!accessToken) throw new Error('Nicht angemeldet');
+
   const isVideo = photo.mimeType.startsWith('video/');
   const downloadUrl = isVideo
     ? `${photo.baseUrl}=dv`
     : `${photo.baseUrl}=d`;
 
-  const res = await fetch(downloadUrl);
-  if (!res.ok) throw new Error(`Download fehlgeschlagen: ${photo.filename}`);
+  // Picker API requires Authorization header for download
+  const res = await fetch(downloadUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    // Fallback: try without size suffix
+    const fallbackRes = await fetch(photo.baseUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!fallbackRes.ok) {
+      throw new Error(`Download fehlgeschlagen: ${photo.filename}`);
+    }
+    const blob = await fallbackRes.blob();
+    return new File([blob], photo.filename, { type: photo.mimeType });
+  }
 
   const blob = await res.blob();
   return new File([blob], photo.filename, { type: photo.mimeType });
