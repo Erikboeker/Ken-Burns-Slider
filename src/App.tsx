@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Play, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen } from 'lucide-react';
+import { Upload, Play, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { db, type Project } from './services/storage';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -632,24 +633,32 @@ const SortableItem: React.FC<SortableItemProps> = ({
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-3 p-2 bg-zinc-900/50 border rounded-xl group transition-all ${isDragging ? 'border-indigo-500 bg-zinc-800 shadow-2xl z-50 scale-[1.02] opacity-50' : editingId === item.id ? 'border-indigo-500/50 bg-indigo-500/5' : 'border-zinc-800 hover:border-zinc-700'}`}
+      className={`flex items-center gap-2.5 p-2 border rounded-xl group transition-all duration-200 ${
+        isDragging
+          ? 'border-indigo-500 bg-zinc-800/80 shadow-2xl shadow-indigo-500/10 z-50 scale-[1.02] opacity-60'
+          : isActive && isGenerating
+            ? 'border-indigo-500/40 bg-indigo-500/5 active-glow'
+            : editingId === item.id
+              ? 'border-indigo-500/50 bg-indigo-500/5'
+              : 'border-zinc-800/60 bg-zinc-900/30 hover:border-zinc-700 hover:bg-zinc-900/60'
+      }`}
     >
-      <div 
+      <div
         {...attributes}
         {...listeners}
-        className="p-1 text-zinc-600 hover:text-zinc-400 cursor-grab active:cursor-grabbing touch-none"
+        className="p-1 text-zinc-700 hover:text-zinc-400 cursor-grab active:cursor-grabbing touch-none transition-colors"
       >
-        <GripVertical className="w-4 h-4" />
+        <GripVertical className="w-3.5 h-3.5" />
       </div>
 
-      <div 
-        className="relative w-16 h-16 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 cursor-pointer"
+      <div
+        className="relative w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 cursor-pointer ring-1 ring-zinc-800/50"
         onClick={() => setEditingId(item.id)}
       >
         {item.type === 'image' ? (
-          <img 
-            src={item.url} 
-            alt={`Upload ${i}`} 
+          <img
+            src={item.url}
+            alt={`Upload ${i}`}
             className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
           />
         ) : (
@@ -659,58 +668,58 @@ const SortableItem: React.FC<SortableItemProps> = ({
             muted
           />
         )}
-        <div className="absolute top-1 left-1 p-0.5 bg-black/60 backdrop-blur-md rounded text-[8px] font-medium text-white">
+        <div className="absolute top-0.5 left-0.5 p-0.5 bg-black/70 backdrop-blur-md rounded text-[7px] font-medium text-white/80">
           {item.type === 'video' ? <Film className="w-2 h-2" /> : <ImageIcon className="w-2 h-2" />}
         </div>
       </div>
 
-      <div 
+      <div
         className="flex-1 min-w-0 cursor-pointer"
         onClick={() => setEditingId(item.id)}
       >
-        <p className="text-sm font-medium truncate text-zinc-200">
+        <p className="text-sm font-medium truncate text-zinc-200 leading-tight">
           {item.customTitle || `Medium ${i + 1}`}
         </p>
-        <div className="flex items-center gap-2 mt-1">
-          <span className="text-[10px] font-mono text-zinc-500">
-            {item.type === 'video' 
-              ? `${Math.round(item.trimEnd - item.trimStart)}s` 
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <span className="text-[10px] font-mono text-zinc-500 tabular-nums">
+            {item.type === 'video'
+              ? `${Math.round(item.trimEnd - item.trimStart)}s`
               : `${Math.round(item.duration / 1000)}s`}
           </span>
-          <span className="text-[10px] text-zinc-600 uppercase tracking-tighter bg-zinc-950 px-1 rounded">
-            {item.type === 'video' 
-              ? 'Video' 
-              : item.mode === 'zoom-in' 
-                ? 'Reinzoomen' 
-                : item.mode === 'zoom-out' 
-                  ? 'Rauszoomen' 
-                  : 'Kamerafahrt'}
+          <span className="text-[9px] text-zinc-600 uppercase tracking-wider bg-zinc-800/60 px-1.5 py-0.5 rounded-md">
+            {item.type === 'video'
+              ? 'Video'
+              : item.mode === 'zoom-in'
+                ? 'Zoom+'
+                : item.mode === 'zoom-out'
+                  ? 'Zoom-'
+                  : 'Pan'}
           </span>
         </div>
         {isActive && isGenerating && (
-          <div className="mt-2 h-1 bg-zinc-800 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-indigo-500 transition-all duration-75 ease-linear"
+          <div className="mt-1.5 h-1 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full progress-shimmer rounded-full transition-all duration-75 ease-linear"
               style={{ width: `${currentProgress}%` }}
             />
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-1">
-        <button 
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
           onClick={() => setEditingId(item.id)}
-          className={`p-2 rounded-lg transition-colors ${editingId === item.id ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
+          className={`p-1.5 rounded-lg transition-colors ${editingId === item.id ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
           title="Bearbeiten"
         >
-          <Crop className="w-4 h-4" />
+          <Crop className="w-3.5 h-3.5" />
         </button>
-        <button 
+        <button
           onClick={() => removeItem(item.id)}
-          className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+          className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
           title="Löschen"
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -740,6 +749,7 @@ export default function App() {
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const savedProjects = useLiveQuery(() => db.projects.toArray());
   
@@ -1564,15 +1574,20 @@ export default function App() {
 
   if (isSetup && items.length === 0) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans flex items-center justify-center p-6 selection:bg-indigo-500/30">
-        <div className="w-full max-w-xl bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 bg-indigo-500/20 rounded-2xl flex items-center justify-center">
-              <Film className="w-6 h-6 text-indigo-400" />
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans flex items-center justify-center p-4 sm:p-6 selection:bg-indigo-500/30">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+          className="w-full max-w-xl bg-zinc-900/60 backdrop-blur-2xl border border-zinc-800/60 rounded-3xl p-6 sm:p-8 shadow-2xl"
+        >
+          <div className="flex items-center gap-3 mb-7">
+            <div className="w-11 h-11 bg-indigo-500/15 rounded-2xl flex items-center justify-center">
+              <Film className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Neues Projekt</h1>
-              <p className="text-zinc-400">Richte dein Ken Burns Video ein.</p>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Neues Projekt</h1>
+              <p className="text-sm text-zinc-500">Ken Burns Video erstellen</p>
             </div>
           </div>
 
@@ -1747,131 +1762,189 @@ export default function App() {
               </label>
             </div>
 
-            <div className="mt-8">
+            <div className="mt-7 space-y-3">
               <button
                 onClick={() => setIsSetup(false)}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-4 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 active:scale-[0.98]"
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3.5 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 active:scale-[0.98] text-sm"
               >
                 Projekt starten
               </button>
-            </div>
-            <div className="flex justify-center gap-4 mt-4">
-              <button 
+              <button
                 onClick={() => setIsProjectManagerOpen(true)}
-                className="text-sm text-zinc-500 hover:text-indigo-400 flex items-center gap-2 transition-colors"
+                className="w-full text-sm text-zinc-500 hover:text-indigo-400 flex items-center justify-center gap-2 transition-colors py-2"
               >
-                <FolderOpen className="w-4 h-4" /> Vorhandenes Projekt laden
+                <FolderOpen className="w-4 h-4" /> Projekt laden
               </button>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-indigo-500/30">
-      <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Film className="w-6 h-6 text-indigo-400" />
-            <h1 className="text-xl font-semibold tracking-tight">{projectTitle || 'Ken Burns Studio'}</h1>
+      <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-indigo-500/15 rounded-xl flex items-center justify-center">
+              <Film className="w-4 h-4 text-indigo-400" />
+            </div>
+            <h1 className="text-base sm:text-lg font-semibold tracking-tight truncate max-w-[200px] sm:max-w-none">{projectTitle || 'Ken Burns Studio'}</h1>
           </div>
-          <div className="flex items-center gap-4">
-            <button 
+
+          {/* Desktop nav */}
+          <div className="hidden md:flex items-center gap-1">
+            <button
               onClick={saveProject}
               disabled={isSaving || items.length === 0}
-              className="text-sm text-zinc-400 hover:text-indigo-400 flex items-center gap-2 transition-colors disabled:opacity-50"
+              className="text-sm text-zinc-400 hover:text-indigo-400 hover:bg-zinc-800/60 flex items-center gap-2 transition-all px-3 py-2 rounded-lg disabled:opacity-40 disabled:hover:bg-transparent"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Speichern
             </button>
-            <button 
+            <button
               onClick={() => setIsProjectManagerOpen(true)}
-              className="text-sm text-zinc-400 hover:text-indigo-400 flex items-center gap-2 transition-colors"
+              className="text-sm text-zinc-400 hover:text-indigo-400 hover:bg-zinc-800/60 flex items-center gap-2 transition-all px-3 py-2 rounded-lg"
             >
-              <FolderOpen className="w-4 h-4" /> Projekte laden
+              <FolderOpen className="w-4 h-4" /> Projekte
             </button>
-            <button 
+            <button
               onClick={resetProject}
-              className="text-sm text-zinc-400 hover:text-red-400 flex items-center gap-2 transition-colors"
+              className="text-sm text-zinc-400 hover:text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-all px-3 py-2 rounded-lg"
             >
-              <PlusCircle className="w-4 h-4" /> Neues Projekt
+              <PlusCircle className="w-4 h-4" /> Neu
             </button>
-            <button 
+            <div className="w-px h-5 bg-zinc-800 mx-1" />
+            <button
               onClick={() => setIsSetup(true)}
-              className="text-sm text-zinc-400 hover:text-white flex items-center gap-2 transition-colors"
+              className="text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/60 flex items-center gap-2 transition-all p-2 rounded-lg"
+              title="Projekteinstellungen"
             >
-              <Settings className="w-4 h-4" /> Projekteinstellungen
+              <Settings className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
         </div>
+
+        {/* Mobile menu dropdown */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="md:hidden overflow-hidden border-t border-zinc-800/50"
+            >
+              <div className="px-4 py-3 space-y-1 bg-zinc-900/80">
+                <button
+                  onClick={() => { saveProject(); setIsMobileMenuOpen(false); }}
+                  disabled={isSaving || items.length === 0}
+                  className="w-full text-left text-sm text-zinc-300 hover:text-indigo-400 hover:bg-zinc-800/60 flex items-center gap-3 transition-all px-3 py-2.5 rounded-lg disabled:opacity-40"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Speichern
+                </button>
+                <button
+                  onClick={() => { setIsProjectManagerOpen(true); setIsMobileMenuOpen(false); }}
+                  className="w-full text-left text-sm text-zinc-300 hover:text-indigo-400 hover:bg-zinc-800/60 flex items-center gap-3 transition-all px-3 py-2.5 rounded-lg"
+                >
+                  <FolderOpen className="w-4 h-4" /> Projekte laden
+                </button>
+                <button
+                  onClick={() => { resetProject(); setIsMobileMenuOpen(false); }}
+                  className="w-full text-left text-sm text-zinc-300 hover:text-red-400 hover:bg-red-500/10 flex items-center gap-3 transition-all px-3 py-2.5 rounded-lg"
+                >
+                  <PlusCircle className="w-4 h-4" /> Neues Projekt
+                </button>
+                <button
+                  onClick={() => { setIsSetup(true); setIsMobileMenuOpen(false); }}
+                  className="w-full text-left text-sm text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center gap-3 transition-all px-3 py-2.5 rounded-lg"
+                >
+                  <Settings className="w-4 h-4" /> Projekteinstellungen
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
+
         {/* Left Column: Upload & List */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="lg:col-span-4 space-y-5">
           <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <h2 className="text-lg font-medium">1. Medien verwalten</h2>
-              <p className="text-sm text-zinc-400">{items.length} Elemente in der Liste.</p>
+            <div className="space-y-0.5">
+              <h2 className="text-base font-semibold flex items-center gap-2">
+                <span className="w-6 h-6 bg-indigo-500/15 rounded-lg flex items-center justify-center text-xs font-bold text-indigo-400">1</span>
+                Medien
+              </h2>
+              <p className="text-xs text-zinc-500">{items.length} {items.length === 1 ? 'Element' : 'Elemente'}</p>
             </div>
             {items.length > 0 && (
-              <button 
+              <button
                 onClick={clearAllItems}
-                className="text-xs text-zinc-500 hover:text-red-400 flex items-center gap-1 transition-colors"
+                className="text-xs text-zinc-600 hover:text-red-400 flex items-center gap-1.5 transition-colors px-2 py-1 rounded-md hover:bg-red-500/10"
               >
                 <Trash2 className="w-3 h-3" /> Alle löschen
               </button>
             )}
           </div>
 
-          <div 
+          <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-zinc-800 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-colors rounded-2xl p-8 text-center cursor-pointer group"
+            className="border-2 border-dashed border-zinc-800 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all duration-300 rounded-2xl p-6 sm:p-8 text-center cursor-pointer group"
           >
-            <input 
-              type="file" 
-              multiple 
-              accept="image/*,video/*" 
-              className="hidden" 
+            <input
+              type="file"
+              multiple
+              accept="image/*,video/*"
+              className="hidden"
               ref={fileInputRef}
               onChange={(e) => handleFiles(Array.from(e.target.files || []))}
             />
-            <div className="w-12 h-12 bg-zinc-900 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
-              <Upload className="w-6 h-6 text-zinc-400 group-hover:text-indigo-400" />
+            <div className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 group-hover:border-indigo-500/30 group-hover:bg-indigo-500/10 transition-all duration-300">
+              <Upload className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
             </div>
-            <p className="font-medium mb-1">Klicken oder Medien hier ablegen</p>
-            <p className="text-xs text-zinc-500">Unterstützt Bilder & Videos</p>
+            <p className="font-medium text-sm mb-0.5">Medien hinzufügen</p>
+            <p className="text-[11px] text-zinc-600">Klicken oder per Drag & Drop</p>
           </div>
 
           {items.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Ausgewählte Medien ({items.length})</h3>
-                <p className="text-[10px] text-zinc-600">Drag & Drop zum Sortieren</p>
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-[11px] font-medium text-zinc-500 uppercase tracking-widest">Medien-Liste</h3>
+                <p className="text-[10px] text-zinc-600 flex items-center gap-1">
+                  <GripVertical className="w-3 h-3" /> Sortieren
+                </p>
               </div>
-              
-              <DndContext 
+
+              <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
                 onDragEnd={handleDragEnd}
               >
-                <SortableContext 
+                <SortableContext
                   items={items.map(item => item.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {items.map((item, i) => (
-                      <SortableItem 
-                        key={item.id} 
-                        item={item} 
-                        i={i} 
-                        editingId={editingId} 
-                        setEditingId={setEditingId} 
-                        removeItem={removeItem} 
+                      <SortableItem
+                        key={item.id}
+                        item={item}
+                        i={i}
+                        editingId={editingId}
+                        setEditingId={setEditingId}
+                        removeItem={removeItem}
                         isGenerating={status === 'generating'}
                         currentProgress={progress}
                         isActive={currentItemIndex === i}
@@ -1885,75 +1958,126 @@ export default function App() {
         </div>
 
         {/* Right Column: Preview & Actions - Sticky */}
-        <div className="lg:col-span-8 space-y-6 lg:sticky lg:top-24 lg:h-fit">
-          <div className="space-y-2 flex items-end justify-between">
-            <div>
-              <h2 className="text-lg font-medium">2. Video generieren</h2>
-              <p className="text-sm text-zinc-400">Vorschau und Export deines Ken Burns Videos.</p>
+        <div className="lg:col-span-8 space-y-5 lg:sticky lg:top-20 lg:h-fit">
+          <div className="flex items-end justify-between gap-4">
+            <div className="space-y-0.5">
+              <h2 className="text-base font-semibold flex items-center gap-2">
+                <span className="w-6 h-6 bg-indigo-500/15 rounded-lg flex items-center justify-center text-xs font-bold text-indigo-400">2</span>
+                Vorschau & Export
+              </h2>
+              <p className="text-xs text-zinc-500">
+                {status === 'generating'
+                  ? `Rendering... ${currentItemIndex !== null ? `Bild ${currentItemIndex + 1}/${items.length}` : ''}`
+                  : status === 'done'
+                    ? 'Video bereit'
+                    : `${items.length} Medien bereit`}
+              </p>
             </div>
             <button
               onClick={generateVideo}
               disabled={items.length === 0 || status === 'generating'}
-              className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white px-6 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors"
+              className={`px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all text-sm ${
+                status === 'generating'
+                  ? 'bg-zinc-800 text-zinc-400 cursor-wait'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 active:scale-[0.97] disabled:bg-zinc-800 disabled:text-zinc-600 disabled:shadow-none'
+              }`}
             >
               {status === 'generating' ? (
-                <div className="flex items-center gap-2">
-                   <Loader2 className="w-4 h-4 animate-spin" />
-                   <span className="text-xs font-mono text-zinc-400">
-                     {Math.round(progress)}%
-                   </span>
-                </div>
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="font-mono tabular-nums">{Math.round(progress)}%</span>
+                </>
               ) : (
-                <Play className="w-4 h-4" />
+                <>
+                  <Play className="w-4 h-4" />
+                  Video erstellen
+                </>
               )}
-              {status === 'generating' ? 'Erstelle...' : 'Video Erstellen'}
             </button>
           </div>
 
-          {status === 'generating' && estimatedTimeRemaining !== null && (
-            <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
-              <div className="flex items-center gap-2 text-indigo-400">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm font-medium">Video wird gerendert...</span>
-              </div>
-              <div className="text-sm text-indigo-400/80 font-mono">
-                Noch ca. {estimatedTimeRemaining}s
-              </div>
-            </div>
-          )}
+          {/* Generation progress bar */}
+          <AnimatePresence>
+            {status === 'generating' && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="space-y-2"
+              >
+                <div className="h-2 bg-zinc-800/80 rounded-full overflow-hidden">
+                  <div
+                    className="h-full progress-shimmer rounded-full transition-all duration-150 ease-linear"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-zinc-500">
+                    {currentItemIndex !== null ? `Bild ${currentItemIndex + 1} von ${items.length}` : 'Starte...'}
+                  </span>
+                  {estimatedTimeRemaining !== null && (
+                    <span className="text-zinc-500 font-mono tabular-nums">
+                      ~{estimatedTimeRemaining}s verbleibend
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          <div className={`bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center ${orientation === 'landscape' ? 'aspect-video' : 'aspect-[9/16] max-h-[70vh] mx-auto'}`}>
+          <div className={`bg-zinc-900/50 border border-zinc-800/60 rounded-2xl overflow-hidden relative flex items-center justify-center ${
+            orientation === 'landscape' || orientation === 'classic'
+              ? 'aspect-video'
+              : orientation === 'square'
+                ? 'aspect-square max-h-[60vh] mx-auto'
+                : 'aspect-[9/16] max-h-[65vh] mx-auto'
+          }`}>
             {items.length === 0 ? (
-              <div className="text-center text-zinc-500 flex flex-col items-center">
-                <ImageIcon className="w-12 h-12 mb-3 opacity-20" />
-                <p>Lade zuerst Bilder hoch</p>
+              <div className="text-center text-zinc-600 flex flex-col items-center p-8">
+                <div className="w-16 h-16 bg-zinc-800/50 rounded-2xl flex items-center justify-center mb-4">
+                  <ImageIcon className="w-8 h-8 opacity-30" />
+                </div>
+                <p className="text-sm font-medium text-zinc-500">Keine Medien vorhanden</p>
+                <p className="text-xs text-zinc-600 mt-1">Lade Bilder oder Videos hoch</p>
               </div>
             ) : (
               <>
-                <canvas 
-                  ref={canvasRef} 
-                  className={`w-full h-full object-contain bg-black ${status === 'idle' ? 'opacity-0 absolute inset-0 pointer-events-none' : 'opacity-100 relative z-10'}`}
+                <canvas
+                  ref={canvasRef}
+                  className={`w-full h-full object-contain bg-black transition-opacity duration-300 ${status === 'idle' ? 'opacity-0 absolute inset-0 pointer-events-none' : 'opacity-100 relative z-10'}`}
                 />
-                
+
                 {status === 'idle' && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-zinc-900 z-20">
-                    <div className="text-center">
-                      <p className="text-zinc-400 mb-4">Bereit zur Generierung</p>
+                  <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 z-20">
+                    {/* Thumbnail mosaic background */}
+                    <div className="absolute inset-0 grid grid-cols-3 gap-0.5 opacity-15 overflow-hidden">
+                      {items.slice(0, 9).map((item, idx) => (
+                        <div key={item.id} className="w-full h-full overflow-hidden">
+                          {item.type === 'image' ? (
+                            <img src={item.url} className="w-full h-full object-cover" alt="" />
+                          ) : (
+                            <video src={item.url} className="w-full h-full object-cover" muted />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="relative text-center z-10">
                       <button
                         onClick={generateVideo}
-                        className="bg-white text-black hover:bg-zinc-200 px-6 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors mx-auto"
+                        className="bg-white/95 text-zinc-950 hover:bg-white px-7 py-3 rounded-2xl font-semibold flex items-center gap-2.5 transition-all shadow-2xl shadow-black/30 active:scale-[0.97] mx-auto text-sm"
                       >
-                        <Play className="w-4 h-4" />
-                        Starten
+                        <Play className="w-5 h-5" />
+                        Video erstellen
                       </button>
+                      <p className="text-zinc-400 mt-3 text-xs">{items.length} Medien bereit</p>
                     </div>
                   </div>
                 )}
 
                 {status === 'generating' && (
-                  <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-zinc-800 z-20">
-                    <div 
-                      className="h-full bg-indigo-500 transition-all duration-75 ease-linear"
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-800/80 z-20">
+                    <div
+                      className="h-full progress-shimmer rounded-r-full transition-all duration-75 ease-linear"
                       style={{ width: `${progress}%` }}
                     />
                   </div>
@@ -1962,175 +2086,221 @@ export default function App() {
             )}
           </div>
 
-          {status === 'done' && videoUrl && (
-            <div className="space-y-4">
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 flex items-center justify-between">
-                <div>
-                  <h3 className="text-emerald-400 font-medium mb-1">Video erfolgreich erstellt!</h3>
-                  <p className="text-sm text-emerald-400/70">Du kannst das Video nun herunterladen oder direkt ansehen.</p>
+          {/* Done state: video player + download */}
+          <AnimatePresence>
+            {status === 'done' && videoUrl && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
+                {/* Video player */}
+                <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-2xl overflow-hidden">
+                  <video
+                    src={videoUrl}
+                    controls
+                    className="w-full"
+                    style={{ maxHeight: '50vh' }}
+                  />
                 </div>
-                <a 
-                  href={videoUrl} 
-                  download={`${projectTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'ken_burns_video'}.${getFileExtension()}`}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors"
-                >
-                  <Download className="w-4 h-4" />
-                  Herunterladen (.{getFileExtension()})
-                </a>
-              </div>
-              
-              {exportFormat === 'mp4' && !actualMimeType.includes('mp4') && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex gap-3">
-                  <div className="w-10 h-10 bg-amber-500/20 rounded-lg flex items-center justify-center shrink-0">
-                    <Settings className="w-5 h-5 text-amber-500" />
+
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-emerald-400 font-semibold text-sm mb-0.5 flex items-center gap-2">
+                      <Check className="w-4 h-4" /> Video erstellt
+                    </h3>
+                    <p className="text-xs text-emerald-400/60">Bereit zum Herunterladen oder Teilen.</p>
                   </div>
-                  <div className="text-sm">
-                    <p className="text-amber-400 font-medium mb-1">WhatsApp-Kompatibilität</p>
-                    <p className="text-amber-400/70 leading-relaxed">
-                      Dein Browser unterstützt kein natives MP4-Encoding. Das Video wurde als WebM erstellt und in .mp4 umbenannt. 
-                      Falls WhatsApp den Ton nicht abspielt, sende das Video bitte als <strong>"Dokument"</strong> statt als Video.
-                    </p>
-                  </div>
+                  <a
+                    href={videoUrl}
+                    download={`${projectTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'ken_burns_video'}.${getFileExtension()}`}
+                    className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all text-sm shadow-lg shadow-emerald-500/20 active:scale-[0.97] whitespace-nowrap"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download .{getFileExtension()}
+                  </a>
                 </div>
-              )}
-            </div>
-          )}
+
+                {exportFormat === 'mp4' && !actualMimeType.includes('mp4') && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex gap-3">
+                    <div className="w-9 h-9 bg-amber-500/20 rounded-lg flex items-center justify-center shrink-0">
+                      <Settings className="w-4 h-4 text-amber-500" />
+                    </div>
+                    <div className="text-xs">
+                      <p className="text-amber-400 font-medium mb-0.5">WhatsApp-Kompatibilität</p>
+                      <p className="text-amber-400/60 leading-relaxed">
+                        Dein Browser unterstützt kein natives MP4-Encoding. Das Video wurde als WebM erstellt.
+                        Sende es ggf. als <strong>"Dokument"</strong> in WhatsApp.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
       </main>
 
       {/* Editor Modal Overlay */}
-      {editingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-          <div 
-            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setEditingId(null)}
-          />
-          <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl custom-scrollbar">
-            <div className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center">
-                  <Crop className="w-4 h-4 text-indigo-400" />
+      <AnimatePresence>
+        {editingItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => setEditingId(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-zinc-900 border border-zinc-800/80 rounded-3xl shadow-2xl custom-scrollbar"
+            >
+              <div className="sticky top-0 z-10 bg-zinc-900/95 backdrop-blur-xl border-b border-zinc-800/50 px-6 py-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 bg-indigo-500/15 rounded-lg flex items-center justify-center">
+                    <Crop className="w-3.5 h-3.5 text-indigo-400" />
+                  </div>
+                  <h3 className="font-semibold text-base">Bearbeiten</h3>
                 </div>
-                <h3 className="font-semibold text-lg">Eigenschaften bearbeiten</h3>
+                <button
+                  onClick={() => setEditingId(null)}
+                  className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button 
-                onClick={() => setEditingId(null)}
-                className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6">
-              <ImageEditor 
-                key={editingItem.id}
-                item={editingItem} 
-                projectTitle={projectTitle}
-                orientation={orientation}
-                customWidth={customWidth}
-                customHeight={customHeight}
-                onSave={handleSaveEdit} 
-                onCancel={() => setEditingId(null)} 
-              />
-            </div>
+              <div className="p-6">
+                <ImageEditor
+                  key={editingItem.id}
+                  item={editingItem}
+                  projectTitle={projectTitle}
+                  orientation={orientation}
+                  customWidth={customWidth}
+                  customHeight={customHeight}
+                  onSave={handleSaveEdit}
+                  onCancel={() => setEditingId(null)}
+                />
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Project Manager Modal */}
-      {isProjectManagerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-          <div 
-            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setIsProjectManagerOpen(false)}
-          />
-          <div className="relative w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/90 backdrop-blur-md">
-              <div className="flex items-center gap-3">
-                <FolderOpen className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-semibold text-lg">Gespeicherte Projekte</h3>
+      <AnimatePresence>
+        {isProjectManagerOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => setIsProjectManagerOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="relative w-full max-w-2xl bg-zinc-900 border border-zinc-800/80 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-3.5 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/95 backdrop-blur-xl">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 bg-indigo-500/15 rounded-lg flex items-center justify-center">
+                    <FolderOpen className="w-3.5 h-3.5 text-indigo-400" />
+                  </div>
+                  <h3 className="font-semibold text-base">Projekte</h3>
+                </div>
+                <button
+                  onClick={() => setIsProjectManagerOpen(false)}
+                  className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button 
-                onClick={() => setIsProjectManagerOpen(false)}
-                className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
-              {!savedProjects || savedProjects.length === 0 ? (
-                <div className="text-center py-12">
-                  <FolderOpen className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
-                  <p className="text-zinc-500">Keine gespeicherten Projekte gefunden.</p>
-                </div>
-              ) : (
-                <div className="grid gap-3">
-                  {savedProjects.map(project => (
-                    <div 
-                      key={project.id}
-                      className="flex items-center justify-between p-4 bg-zinc-800/50 border border-zinc-700/50 rounded-2xl hover:border-indigo-500/50 transition-all group"
-                    >
-                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => loadProject(project)}>
-                        <h4 className="font-medium text-zinc-100 truncate group-hover:text-indigo-400 transition-colors">
-                          {project.title}
-                        </h4>
-                        <p className="text-xs text-zinc-500 mt-1">
-                          Zuletzt bearbeitet: {new Date(project.updatedAt).toLocaleString()} • {project.items.length} Medien
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 ml-4">
-                        <button 
-                          onClick={() => loadProject(project)}
-                          className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors"
-                          title="Laden"
-                        >
-                          <FolderOpen className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => project.id && deleteProject(project.id)}
-                          className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                          title="Löschen"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+              <div className="p-5 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                {!savedProjects || savedProjects.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="w-14 h-14 bg-zinc-800/50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <FolderOpen className="w-7 h-7 text-zinc-600" />
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex justify-end">
-              <button 
-                onClick={() => setIsProjectManagerOpen(false)}
-                className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-medium transition-colors"
-              >
-                Schließen
-              </button>
-            </div>
+                    <p className="text-sm text-zinc-500">Keine Projekte vorhanden</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {savedProjects.map(project => (
+                      <div
+                        key={project.id}
+                        className="flex items-center justify-between p-3.5 bg-zinc-800/30 border border-zinc-800/50 rounded-xl hover:border-indigo-500/30 hover:bg-zinc-800/50 transition-all group cursor-pointer"
+                        onClick={() => loadProject(project)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-sm text-zinc-200 truncate group-hover:text-indigo-400 transition-colors">
+                            {project.title}
+                          </h4>
+                          <p className="text-[11px] text-zinc-600 mt-0.5">
+                            {new Date(project.updatedAt).toLocaleDateString()} · {project.items.length} Medien
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); project.id && deleteProject(project.id); }}
+                            className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Löschen"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Project Settings Modal (Anytime access) */}
-      {isSetup && items.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-          <div 
-            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setIsSetup(false)}
-          />
-          <div className="relative w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/90 backdrop-blur-md">
-              <div className="flex items-center gap-3">
-                <Settings className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-semibold text-lg">Projekteinstellungen</h3>
+      <AnimatePresence>
+        {isSetup && items.length > 0 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => setIsSetup(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="relative w-full max-w-xl bg-zinc-900 border border-zinc-800/80 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-3.5 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/95 backdrop-blur-xl">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 bg-indigo-500/15 rounded-lg flex items-center justify-center">
+                    <Settings className="w-3.5 h-3.5 text-indigo-400" />
+                  </div>
+                  <h3 className="font-semibold text-base">Einstellungen</h3>
+                </div>
+                <button
+                  onClick={() => setIsSetup(false)}
+                  className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button 
-                onClick={() => setIsSetup(false)}
-                className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
             <div className="p-8 max-h-[80vh] overflow-y-auto custom-scrollbar space-y-6">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-300">Projekt-Titel</label>
@@ -2290,17 +2460,18 @@ export default function App() {
                 </label>
               </div>
             </div>
-            <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex justify-end">
-              <button 
-                onClick={() => setIsSetup(false)}
-                className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-colors shadow-lg shadow-indigo-500/20"
-              >
-                Fertig
-              </button>
-            </div>
+              <div className="p-5 border-t border-zinc-800/50 bg-zinc-900/50 flex justify-end">
+                <button
+                  onClick={() => setIsSetup(false)}
+                  className="px-7 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/20 active:scale-[0.97] text-sm"
+                >
+                  Fertig
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 }
