@@ -341,22 +341,25 @@ function ImageEditor({
     setMode(newMode);
 
     if (newMode === 'pan') {
-      // Set up default pan start and end rects
-      const maxW = Math.min(1, frameAspect / imgAspect);
-      const w = 0.5 * maxW;
-      const h = w * imgAspect / frameAspect;
+      // Set up default pan start and end rects with maximum height
+      let h = 1;
+      let w = h * frameAspect / imgAspect;
+      if (w > 1) {
+        w = 1;
+        h = w * imgAspect / frameAspect;
+      }
 
       // Only set defaults if not already configured
       if (!item.panStart || !item.panEnd) {
         let startRect, endRect;
         if (imgAspect < 1) {
           // Portrait image: pan top → bottom
-          startRect = { x: (1 - w) / 2, y: 0, w: w, h: h };
-          endRect = { x: (1 - w) / 2, y: 1 - h, w: w, h: h };
+          startRect = { x: (1 - w) / 2, y: 0, w, h };
+          endRect = { x: (1 - w) / 2, y: 1 - h, w, h };
         } else {
           // Landscape image: pan left → right
-          startRect = { x: 0, y: (1 - h) / 2, w: w, h: h };
-          endRect = { x: 1 - w, y: (1 - h) / 2, w: w, h: h };
+          startRect = { x: 0, y: (1 - h) / 2, w, h };
+          endRect = { x: 1 - w, y: (1 - h) / 2, w, h };
         }
         setPanStart(startRect);
         setPanEnd(endRect);
@@ -927,7 +930,9 @@ export default function App() {
   }, [audioUrl, isAudioPlaying]);
 
   const handleFiles = useCallback(async (newFiles: File[]) => {
+    console.log('[handleFiles] Received files:', newFiles.map(f => `${f.name} (${f.type}, ${f.size})`));
     const validFiles = newFiles.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    console.log('[handleFiles] Valid files after filter:', validFiles.map(f => `${f.name} (${f.type})`));
     if (validFiles.length === 0) return;
 
     const loadedItems = await Promise.all(
@@ -999,16 +1004,21 @@ export default function App() {
                          (mediaAspect < 1 && currentFrameAspect > mediaAspect * 1.2);
 
         if (needsPan) {
-          const maxW = Math.min(1, currentFrameAspect / mediaAspect);
-          w = 0.5 * maxW;
-          h = w * mediaAspect / currentFrameAspect;
+          // Maximum height frame: h as large as possible, w derived from aspect ratio
+          h = 1;
+          w = h * currentFrameAspect / mediaAspect;
+          // If w > 1, cap it and derive h from w instead
+          if (w > 1) {
+            w = 1;
+            h = w * mediaAspect / currentFrameAspect;
+          }
 
           if (mediaAspect >= 1) {
-            // Landscape image: pan left → right
+            // Landscape image: pan left → right, vertically centered
             panStartRect = { x: 0, y: (1 - h) / 2, w, h };
             panEndRect = { x: 1 - w, y: (1 - h) / 2, w, h };
           } else {
-            // Portrait image: pan top → bottom
+            // Portrait image: pan top → bottom, horizontally centered
             panStartRect = { x: (1 - w) / 2, y: 0, w, h };
             panEndRect = { x: (1 - w) / 2, y: 1 - h, w, h };
           }

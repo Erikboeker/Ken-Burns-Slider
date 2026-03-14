@@ -264,28 +264,40 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   if (!accessToken) throw new Error('Nicht angemeldet');
 
   const isVideo = photo.mimeType.startsWith('video/');
-  const downloadUrl = isVideo
-    ? `${photo.baseUrl}=dv`
-    : `${photo.baseUrl}=d`;
+  console.log('[GooglePhotos] Downloading:', photo.filename, 'type:', photo.mimeType, 'isVideo:', isVideo);
 
-  // Picker API requires Authorization header for download
-  const res = await fetch(downloadUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    // Fallback: try without size suffix
-    const fallbackRes = await fetch(photo.baseUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!fallbackRes.ok) {
-      throw new Error(`Download fehlgeschlagen: ${photo.filename}`);
+  // Try multiple URL formats - Picker API may differ from Library API
+  const urlsToTry = isVideo
+    ? [
+        `${photo.baseUrl}=dv`,       // Library API video download
+        photo.baseUrl,                // Raw baseUrl
+      ]
+    : [
+        `${photo.baseUrl}=d`,         // Library API full-res download
+        photo.baseUrl,                // Raw baseUrl
+      ];
+
+  for (const url of urlsToTry) {
+    try {
+      console.log('[GooglePhotos] Trying URL:', url.substring(0, 80) + '...');
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        console.log('[GooglePhotos] Downloaded:', photo.filename, 'size:', blob.size, 'type:', blob.type);
+        // Use the actual blob type if available, fall back to photo.mimeType
+        const actualType = blob.type || photo.mimeType;
+        const filename = photo.filename || (isVideo ? 'video.mp4' : 'photo.jpg');
+        return new File([blob], filename, { type: actualType });
+      }
+      console.warn('[GooglePhotos] URL failed:', res.status);
+    } catch (err) {
+      console.warn('[GooglePhotos] Fetch error for URL:', err);
     }
-    const blob = await fallbackRes.blob();
-    return new File([blob], photo.filename, { type: photo.mimeType });
   }
 
-  const blob = await res.blob();
-  return new File([blob], photo.filename, { type: photo.mimeType });
+  throw new Error(`Download fehlgeschlagen: ${photo.filename}`);
 }
 
 // Type declarations for Google Identity Services
