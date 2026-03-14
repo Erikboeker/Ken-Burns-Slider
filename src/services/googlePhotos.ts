@@ -65,7 +65,9 @@ export function requestAccess(): Promise<string> {
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: SCOPES,
-      callback: (response) => {
+      callback: (response: any) => {
+        console.log('OAuth response:', JSON.stringify(response));
+        console.log('Granted scopes:', response.scope);
         if (response.error) {
           reject(new Error(response.error_description || response.error));
           return;
