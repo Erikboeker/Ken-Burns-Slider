@@ -706,7 +706,7 @@ const SortableItem: React.FC<SortableItemProps> = ({
         )}
       </div>
 
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
         <button
           onClick={() => setEditingId(item.id)}
           className={`p-1.5 rounded-lg transition-colors ${editingId === item.id ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
@@ -1778,6 +1778,82 @@ export default function App() {
             </div>
           </div>
         </motion.div>
+
+        {/* Project Manager Modal (also on setup screen) */}
+        <AnimatePresence>
+          {isProjectManagerOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                onClick={() => setIsProjectManagerOpen(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="relative w-full max-w-2xl bg-zinc-900 border border-zinc-800/80 rounded-3xl shadow-2xl overflow-hidden"
+              >
+                <div className="px-6 py-3.5 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/95 backdrop-blur-xl">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 bg-indigo-500/15 rounded-lg flex items-center justify-center">
+                      <FolderOpen className="w-3.5 h-3.5 text-indigo-400" />
+                    </div>
+                    <h3 className="font-semibold text-base">Projekte</h3>
+                  </div>
+                  <button
+                    onClick={() => setIsProjectManagerOpen(false)}
+                    className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-5 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                  {!savedProjects || savedProjects.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="w-14 h-14 bg-zinc-800/50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <FolderOpen className="w-7 h-7 text-zinc-600" />
+                      </div>
+                      <p className="text-sm text-zinc-500">Keine Projekte vorhanden</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      {savedProjects.map(project => (
+                        <div
+                          key={project.id}
+                          className="flex items-center justify-between p-3.5 bg-zinc-800/30 border border-zinc-800/50 rounded-xl hover:border-indigo-500/30 hover:bg-zinc-800/50 transition-all group cursor-pointer"
+                          onClick={() => loadProject(project)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-sm text-zinc-200 truncate group-hover:text-indigo-400 transition-colors">
+                              {project.title}
+                            </h4>
+                            <p className="text-[11px] text-zinc-600 mt-0.5">
+                              {new Date(project.updatedAt).toLocaleDateString()} · {project.items.length} Medien
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 ml-3">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); project.id && deleteProject(project.id); }}
+                              className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                              title="Löschen"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -2249,7 +2325,7 @@ export default function App() {
                             {new Date(project.updatedAt).toLocaleDateString()} · {project.items.length} Medien
                           </p>
                         </div>
-                        <div className="flex items-center gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 ml-3 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={(e) => { e.stopPropagation(); project.id && deleteProject(project.id); }}
                             className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
