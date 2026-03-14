@@ -8,9 +8,10 @@ try {
   // fallback
 }
 
-// Photos Picker API uses a different, less restricted scope
-const SCOPES = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
+// Picker API scope + Library API scope (needed for actual video downloads)
+const SCOPES = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly https://www.googleapis.com/auth/photoslibrary.readonly';
 const PICKER_API_BASE = 'https://photospicker.googleapis.com/v1';
+const LIBRARY_API_BASE = 'https://photoslibrary.googleapis.com/v1';
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
 let accessToken: string | null = sessionStorage.getItem('gphoto_token');
@@ -61,6 +62,11 @@ export function requestAccess(): Promise<string> {
       return;
     }
 
+    // Force re-auth to ensure we have both picker + library scopes
+    if (accessToken && !sessionStorage.getItem('gphoto_scopes_v2')) {
+      accessToken = null;
+      sessionStorage.removeItem('gphoto_token');
+    }
     if (accessToken) {
       resolve(accessToken);
       return;
@@ -76,6 +82,7 @@ export function requestAccess(): Promise<string> {
         }
         accessToken = response.access_token;
         sessionStorage.setItem('gphoto_token', response.access_token);
+        sessionStorage.setItem('gphoto_scopes_v2', '1');
         resolve(response.access_token);
       },
     });
@@ -324,24 +331,39 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   if (!accessToken) throw new Error('Nicht angemeldet');
 
   const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
-  console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo);
+  console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo, 'id:', photo.id);
 
-  // For videos, try video-specific URLs first; for images, try image URLs first
-  const urlsToTry = isVideo
-    ? [
-        `${photo.baseUrl}=dv`,          // Video download (most likely to work)
-        `${photo.baseUrl}=d`,           // Full-res download
-        photo.baseUrl,                  // Raw baseUrl
-      ]
-    : [
-        `${photo.baseUrl}=d`,           // Full-res download
-        photo.baseUrl,                  // Raw baseUrl
-        `${photo.baseUrl}=w0-h0`,      // Max size variant
-      ];
+  // For videos: use Library API to get proper baseUrl that supports =dv
+  if (isVideo) {
+    try {
+      const libraryUrl = await getLibraryBaseUrl(photo.id);
+      if (libraryUrl) {
+        console.log('[GooglePhotos] Got Library API baseUrl for video');
+        const videoUrl = `${libraryUrl}=dv`;
+        const res = await fetch(videoUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        console.log('[GooglePhotos] Video download response:', res.status, 'size:', res.headers.get('content-length'));
+        if (res.ok) {
+          const blob = await res.blob();
+          console.log('[GooglePhotos] Video blob size:', blob.size);
+          if (blob.size > 100 * 1024) { // > 100KB = real video
+            const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
+            return new File([blob], photo.filename || 'video.mp4', { type: actualType });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[GooglePhotos] Library API video download failed:', err);
+    }
+  }
 
-  // Minimum size for a real video (500KB) - smaller is likely a thumbnail
-  const MIN_VIDEO_SIZE = 500 * 1024;
-  let fallbackBlob: Blob | null = null; // Keep small blob as image fallback
+  // For images (or video fallback): use Picker API baseUrl
+  const urlsToTry = [
+    `${photo.baseUrl}=d`,           // Full-res download
+    photo.baseUrl,                  // Raw baseUrl
+    `${photo.baseUrl}=w0-h0`,      // Max size variant
+  ];
 
   for (const url of urlsToTry) {
     try {
@@ -349,55 +371,50 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      console.log('[GooglePhotos] Response:', res.status, res.statusText, 'content-type:', res.headers.get('content-type'));
       if (res.ok) {
         const blob = await res.blob();
         console.log('[GooglePhotos] Downloaded:', photo.filename, 'size:', blob.size, 'blobType:', blob.type);
-        if (blob.size === 0) {
-          console.warn('[GooglePhotos] Empty blob, trying next URL');
-          continue;
-        }
+        if (blob.size === 0) continue;
 
-        // For videos: if the file is too small, it's probably a thumbnail - save as fallback but keep trying
-        if (isVideo && blob.size < MIN_VIDEO_SIZE) {
-          console.warn('[GooglePhotos] File too small for video (' + blob.size + ' bytes), trying next URL');
-          if (!fallbackBlob || blob.size > fallbackBlob.size) {
-            fallbackBlob = blob;
-          }
-          continue;
-        }
-
-        // Determine correct MIME type
         let actualType = blob.type;
         if (!actualType || actualType === 'application/octet-stream') {
-          actualType = photo.mimeType;
+          actualType = isVideo ? 'image/jpeg' : (photo.mimeType || guessMimeType(photo.filename));
         }
-        if (!actualType || actualType === 'application/octet-stream' || actualType === 'image/jpeg') {
-          actualType = guessMimeType(photo.filename);
+        // If this was a video but we couldn't get real video, import as image
+        const filename = isVideo
+          ? (photo.filename.replace(/\.\w+$/, '.jpg') || 'video_thumbnail.jpg')
+          : (photo.filename || 'photo.jpg');
+        if (isVideo) {
+          actualType = 'image/jpeg'; // Force image type for video thumbnails
         }
-        if (isVideo && !actualType.startsWith('video/')) {
-          actualType = guessMimeType(photo.filename);
-          if (!actualType.startsWith('video/')) actualType = 'video/mp4';
-        }
-        const filename = photo.filename || (isVideo ? 'video.mp4' : 'photo.jpg');
-        console.log('[GooglePhotos] Creating file:', filename, 'finalType:', actualType);
         return new File([blob], filename, { type: actualType });
       }
-      console.warn('[GooglePhotos] URL failed:', res.status);
     } catch (err) {
-      console.warn('[GooglePhotos] Fetch error for URL:', err);
+      console.warn('[GooglePhotos] Fetch error:', err);
     }
   }
 
-  // If we have a fallback blob (small thumbnail for a video), import as image instead
-  if (isVideo && fallbackBlob) {
-    console.log('[GooglePhotos] No real video available, importing thumbnail as image (' + fallbackBlob.size + ' bytes)');
-    const imgType = fallbackBlob.type?.startsWith('image/') ? fallbackBlob.type : 'image/jpeg';
-    const imgName = photo.filename.replace(/\.\w+$/, '.jpg');
-    return new File([fallbackBlob], imgName, { type: imgType });
-  }
-
   throw new Error(`Download fehlgeschlagen: ${photo.filename}`);
+}
+
+// Fetch the real baseUrl from Library API (needed for video =dv downloads)
+async function getLibraryBaseUrl(mediaItemId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${LIBRARY_API_BASE}/mediaItems/${mediaItemId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    console.log('[GooglePhotos] Library API mediaItem response:', res.status);
+    if (res.ok) {
+      const data = await res.json();
+      console.log('[GooglePhotos] Library API baseUrl available:', !!data.baseUrl);
+      return data.baseUrl || null;
+    }
+    const errorBody = await res.text();
+    console.warn('[GooglePhotos] Library API error:', res.status, errorBody);
+  } catch (err) {
+    console.warn('[GooglePhotos] Library API fetch error:', err);
+  }
+  return null;
 }
 
 // Type declarations for Google Identity Services
