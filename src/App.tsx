@@ -1,7 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Play, Pause, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown, Volume2, StopCircle, Move } from 'lucide-react';
+import { Upload, Play, Pause, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown, Volume2, StopCircle, Move, CloudDownload, LogOut } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { db, type Project } from './services/storage';
+import * as googlePhotos from './services/googlePhotos';
+import type { GooglePhoto } from './services/googlePhotos';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   DndContext,
@@ -820,6 +822,16 @@ export default function App() {
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
 
+  // Google Photos state
+  const [isGooglePhotosOpen, setIsGooglePhotosOpen] = useState(false);
+  const [googlePhotosList, setGooglePhotosList] = useState<GooglePhoto[]>([]);
+  const [googlePhotosNextPage, setGooglePhotosNextPage] = useState<string | undefined>();
+  const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
+  const [googlePhotosError, setGooglePhotosError] = useState<string | null>(null);
+  const [googlePhotosSelected, setGooglePhotosSelected] = useState<Set<string>>(new Set());
+  const [googlePhotosImporting, setGooglePhotosImporting] = useState(false);
+  const [googleSignedIn, setGoogleSignedIn] = useState(false);
+
   // Update all items' rect when project aspect ratio changes
   useEffect(() => {
     if (items.length === 0) return;
@@ -1015,6 +1027,83 @@ export default function App() {
     const droppedFiles = Array.from(e.dataTransfer.files);
     handleFiles(droppedFiles);
   }, [handleFiles]);
+
+  // Google Photos functions
+  const openGooglePhotos = async () => {
+    setIsGooglePhotosOpen(true);
+    setGooglePhotosError(null);
+    setGooglePhotosSelected(new Set());
+
+    try {
+      await googlePhotos.loadGsi();
+
+      if (!googlePhotos.isSignedIn()) {
+        await googlePhotos.requestAccess();
+        setGoogleSignedIn(true);
+      }
+
+      setGooglePhotosLoading(true);
+      const result = await googlePhotos.listPhotos();
+      setGooglePhotosList(result.photos);
+      setGooglePhotosNextPage(result.nextPageToken);
+    } catch (err) {
+      setGooglePhotosError((err as Error).message);
+    } finally {
+      setGooglePhotosLoading(false);
+    }
+  };
+
+  const loadMoreGooglePhotos = async () => {
+    if (!googlePhotosNextPage || googlePhotosLoading) return;
+    setGooglePhotosLoading(true);
+    try {
+      const result = await googlePhotos.listPhotos(googlePhotosNextPage);
+      setGooglePhotosList(prev => [...prev, ...result.photos]);
+      setGooglePhotosNextPage(result.nextPageToken);
+    } catch (err) {
+      setGooglePhotosError((err as Error).message);
+    } finally {
+      setGooglePhotosLoading(false);
+    }
+  };
+
+  const toggleGooglePhotoSelection = (id: string) => {
+    setGooglePhotosSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const importGooglePhotos = async () => {
+    const selected = googlePhotosList.filter(p => googlePhotosSelected.has(p.id));
+    if (selected.length === 0) return;
+
+    setGooglePhotosImporting(true);
+    try {
+      const files: File[] = [];
+      for (const photo of selected) {
+        const file = await googlePhotos.downloadPhoto(photo);
+        files.push(file);
+      }
+      await handleFiles(files);
+      setIsGooglePhotosOpen(false);
+      setGooglePhotosSelected(new Set());
+    } catch (err) {
+      setGooglePhotosError((err as Error).message);
+    } finally {
+      setGooglePhotosImporting(false);
+    }
+  };
+
+  const signOutGoogle = () => {
+    googlePhotos.signOut();
+    setGoogleSignedIn(false);
+    setGooglePhotosList([]);
+    setGooglePhotosNextPage(undefined);
+    setIsGooglePhotosOpen(false);
+  };
 
   const removeItem = (id: string) => {
     setItems(prev => {
@@ -2124,6 +2213,20 @@ export default function App() {
             <p className="text-[11px] text-zinc-600">Klicken oder per Drag & Drop</p>
           </div>
 
+          <button
+            onClick={openGooglePhotos}
+            className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-zinc-900/60 border border-zinc-800/60 hover:border-blue-500/40 hover:bg-blue-500/5 rounded-2xl transition-all group text-sm"
+          >
+            <svg className="w-5 h-5 text-zinc-400 group-hover:text-blue-400 transition-colors" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="none"/>
+              <path d="M12 2v10h10c0-5.52-4.48-10-10-10z" fill="#EA4335"/>
+              <path d="M2 12h10V2C6.48 2 2 6.48 2 12z" fill="#4285F4"/>
+              <path d="M12 22V12H2c0 5.52 4.48 10 10 10z" fill="#34A853"/>
+              <path d="M12 12v10c5.52 0 10-4.48 10-10H12z" fill="#FBBC05"/>
+            </svg>
+            <span className="text-zinc-400 group-hover:text-blue-400 transition-colors font-medium">Google Fotos</span>
+          </button>
+
           {items.length > 0 && (
             <div className="space-y-2.5">
               <div className="flex items-center justify-between px-1">
@@ -2694,6 +2797,174 @@ export default function App() {
                   Fertig
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Google Photos Picker Modal */}
+      <AnimatePresence>
+        {isGooglePhotosOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => !googlePhotosImporting && setIsGooglePhotosOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="relative w-full max-w-3xl bg-zinc-900 border border-zinc-800/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+              style={{ maxHeight: '85vh' }}
+            >
+              {/* Header */}
+              <div className="px-6 py-3.5 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/95 backdrop-blur-xl flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2v10h10c0-5.52-4.48-10-10-10z" fill="#EA4335"/>
+                    <path d="M2 12h10V2C6.48 2 2 6.48 2 12z" fill="#4285F4"/>
+                    <path d="M12 22V12H2c0 5.52 4.48 10 10 10z" fill="#34A853"/>
+                    <path d="M12 12v10c5.52 0 10-4.48 10-10H12z" fill="#FBBC05"/>
+                  </svg>
+                  <h3 className="font-semibold text-base">Google Fotos</h3>
+                  {googlePhotosSelected.size > 0 && (
+                    <span className="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full font-medium">
+                      {googlePhotosSelected.size} ausgewählt
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {googleSignedIn && (
+                    <button
+                      onClick={signOutGoogle}
+                      className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-500 hover:text-red-400"
+                      title="Abmelden"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => !googlePhotosImporting && setIsGooglePhotosOpen(false)}
+                    className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-400 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+                {googlePhotosError && (
+                  <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400">
+                    {googlePhotosError}
+                    {!googleSignedIn && (
+                      <button
+                        onClick={openGooglePhotos}
+                        className="ml-3 underline hover:text-red-300"
+                      >
+                        Erneut versuchen
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {googlePhotosLoading && googlePhotosList.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-400 mb-3" />
+                    <p className="text-sm text-zinc-400">Fotos werden geladen...</p>
+                  </div>
+                ) : googlePhotosList.length === 0 && !googlePhotosError ? (
+                  <div className="text-center py-16">
+                    <div className="w-14 h-14 bg-zinc-800/50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <ImageIcon className="w-7 h-7 text-zinc-600" />
+                    </div>
+                    <p className="text-sm text-zinc-500">Keine Fotos gefunden</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                      {googlePhotosList.map(photo => (
+                        <div
+                          key={photo.id}
+                          onClick={() => toggleGooglePhotoSelection(photo.id)}
+                          className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer group transition-all ${
+                            googlePhotosSelected.has(photo.id)
+                              ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-zinc-900 scale-[0.96]'
+                              : 'hover:ring-1 hover:ring-zinc-600'
+                          }`}
+                        >
+                          <img
+                            src={`${photo.baseUrl}=w300-h300-c`}
+                            alt={photo.filename}
+                            loading="lazy"
+                            className="w-full h-full object-cover"
+                          />
+                          {googlePhotosSelected.has(photo.id) && (
+                            <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
+                              <div className="w-7 h-7 bg-indigo-500 rounded-full flex items-center justify-center shadow-lg">
+                                <Check className="w-4 h-4 text-white" />
+                              </div>
+                            </div>
+                          )}
+                          {photo.mimeType.startsWith('video/') && (
+                            <div className="absolute bottom-1 right-1 p-1 bg-black/70 rounded text-[8px] text-white/80">
+                              <Film className="w-3 h-3" />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {googlePhotosNextPage && (
+                      <div className="flex justify-center mt-4">
+                        <button
+                          onClick={loadMoreGooglePhotos}
+                          disabled={googlePhotosLoading}
+                          className="px-5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                          {googlePhotosLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                          Mehr laden
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              {googlePhotosList.length > 0 && (
+                <div className="px-5 py-3.5 border-t border-zinc-800/50 bg-zinc-900/95 flex items-center justify-between flex-shrink-0">
+                  <p className="text-xs text-zinc-500">
+                    {googlePhotosList.length} Fotos geladen
+                  </p>
+                  <button
+                    onClick={importGooglePhotos}
+                    disabled={googlePhotosSelected.size === 0 || googlePhotosImporting}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium text-sm flex items-center gap-2 transition-all shadow-lg shadow-indigo-500/20 active:scale-[0.97] disabled:bg-zinc-800 disabled:text-zinc-600 disabled:shadow-none"
+                  >
+                    {googlePhotosImporting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Importiere...
+                      </>
+                    ) : (
+                      <>
+                        <CloudDownload className="w-4 h-4" />
+                        {googlePhotosSelected.size} Fotos importieren
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
