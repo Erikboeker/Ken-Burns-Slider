@@ -178,15 +178,19 @@ async function pollPickerSession(
   popup: Window | null
 ): Promise<GooglePhoto[]> {
   const maxAttempts = 600; // 10 minutes max
-  let popupClosedSince = 0; // timestamp when popup was first detected as closed
+  // On mobile/Android, do NOT use popup.closed detection - it's unreliable
+  // (tab switches look like closes). Just poll until mediaItemsSet or timeout.
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  let popupClosedSince = 0;
 
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, 1000));
 
     try {
       const sessionData = await checkSession(sessionId);
-      if (i % 5 === 0) {
-        console.log('[GooglePhotos] Poll #' + i, JSON.stringify(sessionData));
+      if (i % 10 === 0) {
+        console.log('[GooglePhotos] Poll #' + i, 'mediaItemsSet:', sessionData.mediaItemsSet);
       }
 
       if (sessionData.mediaItemsSet) {
@@ -197,23 +201,22 @@ async function pollPickerSession(
       console.warn('[GooglePhotos] Poll error, retrying:', err);
     }
 
-    // Track when popup/tab was closed (user might have cancelled)
-    // On mobile, tab switches look like closes, so wait 15s before giving up
-    try {
-      if (popup && popup.closed) {
-        if (!popupClosedSince) {
-          popupClosedSince = Date.now();
-          console.log('[GooglePhotos] Popup/tab appears closed, waiting 30s for mediaItemsSet...');
-        } else if (Date.now() - popupClosedSince > 30000) {
-          // 30 seconds since popup closed and still no mediaItemsSet
-          console.log('[GooglePhotos] Popup closed for 30s without mediaItemsSet, treating as cancelled');
-          return [];
+    // Only use popup.closed detection on desktop
+    if (!isMobile) {
+      try {
+        if (popup && popup.closed) {
+          if (!popupClosedSince) {
+            popupClosedSince = Date.now();
+          } else if (Date.now() - popupClosedSince > 30000) {
+            console.log('[GooglePhotos] Popup closed for 30s without mediaItemsSet, treating as cancelled');
+            return [];
+          }
+        } else {
+          popupClosedSince = 0;
         }
-      } else {
-        popupClosedSince = 0; // Reset if popup is open again
+      } catch {
+        // Cross-origin - ignore
       }
-    } catch {
-      // Cross-origin - ignore
     }
   }
 
