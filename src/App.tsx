@@ -1104,20 +1104,23 @@ export default function App() {
     setGooglePhotosLoading(true);
 
     try {
+      alert('[DEBUG 1] Start Google Photos');
       await googlePhotos.loadGsi();
 
       if (!googlePhotos.isSignedIn()) {
         await googlePhotos.requestAccess();
         setGoogleSignedIn(true);
       }
+      alert('[DEBUG 2] Signed in, opening picker...');
 
       // Picker UI handles selection - get picked photos directly
       const result = await googlePhotos.listPhotos();
       const photos = result.photos;
+      alert(`[DEBUG 3] Picker returned ${photos.length} items`);
 
       if (photos.length === 0) {
         setGooglePhotosLoading(false);
-        setGooglePhotosError('Picker: 0 Elemente zurückgegeben. Möglicherweise wurde die Auswahl abgebrochen oder Videos werden vom Picker nicht unterstützt.');
+        alert('[DEBUG] Picker returned 0 items - cancelled or not supported');
         return;
       }
 
@@ -1126,7 +1129,8 @@ export default function App() {
       const debugLines: string[] = [];
       debugLines.push(`Picker: ${photos.length} items selected`);
       for (const photo of photos) {
-        debugLines.push(`→ ${photo.filename} | mime: ${photo.mimeType} | url: ${photo.baseUrl?.substring(0, 60)}...`);
+        const info = `${photo.filename} | mime: ${photo.mimeType}`;
+        debugLines.push(`→ ${info}`);
         try {
           const file = await googlePhotos.downloadPhoto(photo);
           debugLines.push(`  ✓ OK size=${file.size} type=${file.type}`);
@@ -1137,17 +1141,15 @@ export default function App() {
         }
       }
       debugLines.push(`Result: ${files.length}/${photos.length} downloaded`);
+      alert('[DEBUG 4] Downloads done:\n' + debugLines.join('\n'));
 
       if (files.length > 0) {
         await handleFiles(files);
       } else {
-        setGooglePhotosError('Keine Fotos konnten heruntergeladen werden\n\nDebug:\n' + debugLines.join('\n'));
-      }
-      // Temporary: always show debug info when some items failed
-      if (files.length < photos.length && files.length > 0) {
-        setGooglePhotosError('Einige Dateien fehlgeschlagen\n\nDebug:\n' + debugLines.join('\n'));
+        setGooglePhotosError('Keine Fotos konnten heruntergeladen werden');
       }
     } catch (err) {
+      alert('[DEBUG ERROR] ' + (err instanceof Error ? err.message : String(err)));
       setGooglePhotosError((err as Error).message);
     } finally {
       setGooglePhotosLoading(false);
