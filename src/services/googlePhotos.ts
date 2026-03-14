@@ -326,13 +326,22 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
   console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo);
 
-  // Try all URL formats for both video and image - Picker API behavior varies
-  const urlsToTry = [
-    photo.baseUrl,                  // Raw baseUrl (Picker API default)
-    `${photo.baseUrl}=d`,           // Full-res download
-    `${photo.baseUrl}=dv`,          // Video download variant
-    `${photo.baseUrl}=w0-h0`,      // Max size variant
-  ];
+  // For videos, try video-specific URLs first; for images, try image URLs first
+  const urlsToTry = isVideo
+    ? [
+        `${photo.baseUrl}=dv`,          // Video download (most likely to work)
+        `${photo.baseUrl}=d`,           // Full-res download
+        photo.baseUrl,                  // Raw baseUrl
+      ]
+    : [
+        `${photo.baseUrl}=d`,           // Full-res download
+        photo.baseUrl,                  // Raw baseUrl
+        `${photo.baseUrl}=w0-h0`,      // Max size variant
+      ];
+
+  // Minimum size for a real video (500KB) - smaller is likely a thumbnail
+  const MIN_VIDEO_SIZE = 500 * 1024;
+  let fallbackBlob: Blob | null = null; // Keep small blob as image fallback
 
   for (const url of urlsToTry) {
     try {
@@ -348,16 +357,24 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
           console.warn('[GooglePhotos] Empty blob, trying next URL');
           continue;
         }
-        // Determine correct MIME type: prefer blob type, then photo metadata, then guess from filename
+
+        // For videos: if the file is too small, it's probably a thumbnail - save as fallback but keep trying
+        if (isVideo && blob.size < MIN_VIDEO_SIZE) {
+          console.warn('[GooglePhotos] File too small for video (' + blob.size + ' bytes), trying next URL');
+          if (!fallbackBlob || blob.size > fallbackBlob.size) {
+            fallbackBlob = blob;
+          }
+          continue;
+        }
+
+        // Determine correct MIME type
         let actualType = blob.type;
         if (!actualType || actualType === 'application/octet-stream') {
           actualType = photo.mimeType;
         }
         if (!actualType || actualType === 'application/octet-stream' || actualType === 'image/jpeg') {
-          // Last resort: guess from filename extension
           actualType = guessMimeType(photo.filename);
         }
-        // Force video type if we detected it as video
         if (isVideo && !actualType.startsWith('video/')) {
           actualType = guessMimeType(photo.filename);
           if (!actualType.startsWith('video/')) actualType = 'video/mp4';
@@ -370,6 +387,14 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
     } catch (err) {
       console.warn('[GooglePhotos] Fetch error for URL:', err);
     }
+  }
+
+  // If we have a fallback blob (small thumbnail for a video), import as image instead
+  if (isVideo && fallbackBlob) {
+    console.log('[GooglePhotos] No real video available, importing thumbnail as image (' + fallbackBlob.size + ' bytes)');
+    const imgType = fallbackBlob.type?.startsWith('image/') ? fallbackBlob.type : 'image/jpeg';
+    const imgName = photo.filename.replace(/\.\w+$/, '.jpg');
+    return new File([fallbackBlob], imgName, { type: imgType });
   }
 
   throw new Error(`Download fehlgeschlagen: ${photo.filename}`);
