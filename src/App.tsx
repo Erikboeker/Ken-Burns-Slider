@@ -1036,6 +1036,24 @@ export default function App() {
 
         const color = getDominantColor(element);
 
+        // Videos: no effects, use full frame, original duration
+        if (isVideo) {
+          return {
+            id: Math.random().toString(36).substring(2, 9),
+            type: 'video',
+            file,
+            url,
+            element,
+            rect: { x: 0, y: 0, w: 1, h: 1 },
+            mode: 'zoom-in' as KenBurnsMode, // ignored for video
+            duration: itemDuration,
+            dominantColor: color,
+            trimStart: 0,
+            trimEnd: itemDuration / 1000,
+            originalDuration: itemDuration / 1000
+          } as PlaylistItem;
+        }
+
         return {
           id: Math.random().toString(36).substring(2, 9),
           type: isVideo ? 'video' : 'image',
