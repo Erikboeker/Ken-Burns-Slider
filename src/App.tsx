@@ -348,8 +348,16 @@ function ImageEditor({
 
       // Only set defaults if not already configured
       if (!item.panStart || !item.panEnd) {
-        const startRect = { x: 0, y: 0, w: w, h: h };
-        const endRect = { x: 1 - w, y: 1 - h, w: w, h: h };
+        let startRect, endRect;
+        if (imgAspect < 1) {
+          // Portrait image: pan top → bottom
+          startRect = { x: (1 - w) / 2, y: 0, w: w, h: h };
+          endRect = { x: (1 - w) / 2, y: 1 - h, w: w, h: h };
+        } else {
+          // Landscape image: pan left → right
+          startRect = { x: 0, y: (1 - h) / 2, w: w, h: h };
+          endRect = { x: 1 - w, y: (1 - h) / 2, w: w, h: h };
+        }
         setPanStart(startRect);
         setPanEnd(endRect);
         setRect(startRect);
@@ -442,8 +450,21 @@ function ImageEditor({
           )}
         </div>
 
-
-        
+        {/* Duration input for images */}
+        {!isVideo && (
+          <div className="space-y-2">
+            <label className="text-sm text-zinc-400">Dauer (Sekunden)</label>
+            <input
+              type="number"
+              min="1"
+              max="60"
+              step="1"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-white font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50"
+            />
+          </div>
+        )}
         {isVideo && (
           <div className="col-span-2 space-y-4 pt-4 border-t border-zinc-800">
             <div className="flex items-center justify-between">
@@ -969,19 +990,31 @@ export default function App() {
         const currentFrameAspect = orientation === 'custom' ? customWidth / customHeight : ASPECT_RATIOS[orientation];
 
         let x, y, w, h;
+        let autoPan = false;
+        let panStartRect: Rect | undefined;
+        let panEndRect: Rect | undefined;
 
-        if (orientation === 'portrait' && mediaAspect > 1) {
-          // Video is portrait, image is landscape -> pan left to right
-          h = 1;
-          w = h * currentFrameAspect / mediaAspect;
-          x = 0; // Start at left
-          y = 0;
-        } else if (orientation === 'landscape' && mediaAspect < 1) {
-          // Video is landscape, image is portrait -> pan top to bottom
-          w = 1;
+        // Check if image aspect differs significantly from frame aspect
+        const needsPan = (mediaAspect > 1 && currentFrameAspect < mediaAspect * 0.8) ||
+                         (mediaAspect < 1 && currentFrameAspect > mediaAspect * 1.2);
+
+        if (needsPan) {
+          const maxW = Math.min(1, currentFrameAspect / mediaAspect);
+          w = 0.5 * maxW;
           h = w * mediaAspect / currentFrameAspect;
-          x = 0;
-          y = 0; // Start at top
+
+          if (mediaAspect >= 1) {
+            // Landscape image: pan left → right
+            panStartRect = { x: 0, y: (1 - h) / 2, w, h };
+            panEndRect = { x: 1 - w, y: (1 - h) / 2, w, h };
+          } else {
+            // Portrait image: pan top → bottom
+            panStartRect = { x: (1 - w) / 2, y: 0, w, h };
+            panEndRect = { x: (1 - w) / 2, y: 1 - h, w, h };
+          }
+          x = panStartRect.x;
+          y = panStartRect.y;
+          autoPan = true;
         } else {
           // Default zoom-in behavior
           const maxW = Math.min(1, currentFrameAspect / mediaAspect);
@@ -1000,7 +1033,9 @@ export default function App() {
           url,
           element,
           rect: { x, y, w, h },
-          mode: ((orientation === 'portrait' && mediaAspect > 1) || (orientation === 'landscape' && mediaAspect < 1) ? 'pan' : 'zoom-in') as KenBurnsMode,
+          mode: (autoPan ? 'pan' : 'zoom-in') as KenBurnsMode,
+          panStart: panStartRect,
+          panEnd: panEndRect,
           duration: itemDuration,
           dominantColor: color,
           trimStart: 0,
@@ -1355,7 +1390,8 @@ export default function App() {
             let currentScale, currentDx, currentDy;
 
             if (isVideo) {
-              currentScale = Math.min(canvas.width / mediaWidth, canvas.height / mediaHeight);
+              // Fill canvas (cover) and center the video
+              currentScale = Math.max(canvas.width / mediaWidth, canvas.height / mediaHeight);
               currentDx = (canvas.width - mediaWidth * currentScale) / 2;
               currentDy = (canvas.height - mediaHeight * currentScale) / 2;
             } else if (item.mode === 'zoom-in') {
