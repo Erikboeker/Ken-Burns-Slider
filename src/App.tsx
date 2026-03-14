@@ -866,6 +866,7 @@ export default function App() {
 
   // Google Photos state
   const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
+  const [googlePhotosStatus, setGooglePhotosStatus] = useState('');
   const [googlePhotosError, setGooglePhotosError] = useState<string | null>(null);
   const [googleSignedIn, setGoogleSignedIn] = useState(false);
 
@@ -1129,12 +1130,15 @@ export default function App() {
     setGooglePhotosLoading(true);
 
     try {
+      setGooglePhotosStatus('Verbindung wird hergestellt...');
       await googlePhotos.loadGsi();
 
       if (!googlePhotos.isSignedIn()) {
         await googlePhotos.requestAccess();
         setGoogleSignedIn(true);
       }
+
+      setGooglePhotosStatus('Wähle Fotos & Videos in Google Photos aus...');
 
       // Picker UI handles selection - get picked photos directly
       const result = await googlePhotos.listPhotos();
@@ -1147,12 +1151,13 @@ export default function App() {
 
       // Download and import directly - no second selection needed
       const files: File[] = [];
-      for (const photo of photos) {
+      for (let i = 0; i < photos.length; i++) {
+        setGooglePhotosStatus(`Importiere ${i + 1} von ${photos.length}...`);
         try {
-          const file = await googlePhotos.downloadPhoto(photo);
+          const file = await googlePhotos.downloadPhoto(photos[i]);
           files.push(file);
         } catch (err) {
-          console.warn('Download failed:', photo.filename, err);
+          console.warn('Download failed:', photos[i].filename, err);
         }
       }
 
@@ -2959,7 +2964,7 @@ export default function App() {
               className="relative bg-zinc-900 border border-zinc-800/80 rounded-3xl shadow-2xl p-8 flex flex-col items-center gap-4"
             >
               <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-              <p className="text-sm text-zinc-400">Fotos werden importiert...</p>
+              <p className="text-sm text-zinc-400">{googlePhotosStatus || 'Fotos werden importiert...'}</p>
             </motion.div>
           </div>
         )}
