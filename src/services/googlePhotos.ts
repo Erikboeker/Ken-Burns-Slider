@@ -13,7 +13,7 @@ const SCOPES = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly
 const PICKER_API_BASE = 'https://photospicker.googleapis.com/v1';
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
-let accessToken: string | null = null;
+let accessToken: string | null = sessionStorage.getItem('gphoto_token');
 
 // Load Google Identity Services script
 let gsiLoaded = false;
@@ -51,6 +51,7 @@ export function signOut() {
     google.accounts.oauth2.revoke(accessToken, () => {});
   }
   accessToken = null;
+  sessionStorage.removeItem('gphoto_token');
 }
 
 export function requestAccess(): Promise<string> {
@@ -74,12 +75,33 @@ export function requestAccess(): Promise<string> {
           return;
         }
         accessToken = response.access_token;
+        sessionStorage.setItem('gphoto_token', response.access_token);
         resolve(response.access_token);
       },
     });
 
-    tokenClient.requestAccessToken({ prompt: 'consent' });
+    // Use '' instead of 'consent' to allow silent re-auth if already granted
+    tokenClient.requestAccessToken({ prompt: '' });
   });
+}
+
+// Detect video by filename extension
+function isVideoFilename(filename: string): boolean {
+  const ext = filename.toLowerCase().split('.').pop() || '';
+  return ['mp4', 'mov', 'avi', 'webm', 'mkv', 'm4v', '3gp', 'mts'].includes(ext);
+}
+
+function guessMimeType(filename: string): string {
+  const ext = filename.toLowerCase().split('.').pop() || '';
+  const mimeMap: Record<string, string> = {
+    mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
+    webm: 'video/webm', mkv: 'video/x-matroska', m4v: 'video/mp4',
+    '3gp': 'video/3gpp', mts: 'video/mp2t',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    gif: 'image/gif', webp: 'image/webp', heic: 'image/heic',
+    heif: 'image/heif', avif: 'image/avif', bmp: 'image/bmp',
+  };
+  return mimeMap[ext] || 'image/jpeg';
 }
 
 export interface GooglePhoto {
@@ -106,6 +128,7 @@ export async function openPhotoPicker(): Promise<GooglePhoto[]> {
     if (testRes.status === 401) {
       console.log('[GooglePhotos] Token expired, requesting new one');
       accessToken = null;
+      sessionStorage.removeItem('gphoto_token');
       accessToken = await requestAccess();
     }
   } catch {
@@ -128,6 +151,7 @@ export async function openPhotoPicker(): Promise<GooglePhoto[]> {
     // If 401, try to refresh token and retry once
     if (sessionRes.status === 401) {
       accessToken = null;
+      sessionStorage.removeItem('gphoto_token');
       accessToken = await requestAccess();
       return openPhotoPicker();
     }
@@ -153,7 +177,8 @@ async function pollPickerSession(
   sessionId: string,
   popup: Window | null
 ): Promise<GooglePhoto[]> {
-  const maxAttempts = 600; // 10 minutes max (600 * 1s)
+  const maxAttempts = 600; // 10 minutes max
+  let popupClosedSince = 0; // timestamp when popup was first detected as closed
 
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, 1000));
@@ -169,8 +194,26 @@ async function pollPickerSession(
         return await getPickerMediaItems(sessionId);
       }
     } catch (err) {
-      // Network error during poll - just retry
       console.warn('[GooglePhotos] Poll error, retrying:', err);
+    }
+
+    // Track when popup/tab was closed (user might have cancelled)
+    // On mobile, tab switches look like closes, so wait 15s before giving up
+    try {
+      if (popup && popup.closed) {
+        if (!popupClosedSince) {
+          popupClosedSince = Date.now();
+          console.log('[GooglePhotos] Popup/tab appears closed, waiting 15s for mediaItemsSet...');
+        } else if (Date.now() - popupClosedSince > 15000) {
+          // 15 seconds since popup closed and still no mediaItemsSet
+          console.log('[GooglePhotos] Popup closed for 15s without mediaItemsSet, treating as cancelled');
+          return [];
+        }
+      } else {
+        popupClosedSince = 0; // Reset if popup is open again
+      }
+    } catch {
+      // Cross-origin - ignore
     }
   }
 
@@ -225,8 +268,19 @@ async function getPickerMediaItems(sessionId: string): Promise<GooglePhoto[]> {
       const mediaFile = item.mediaFile || item;
       const baseUrl = mediaFile.baseUrl || item.baseUrl || '';
       const filename = mediaFile.filename || item.filename || 'photo.jpg';
-      const mimeType = mediaFile.mimeType || item.mimeType || 'image/jpeg';
+      // Detect mimeType: prefer API value, fall back to extension-based guess
+      let mimeType = mediaFile.mimeType || item.mimeType || '';
+      if (!mimeType || mimeType === 'application/octet-stream') {
+        mimeType = guessMimeType(filename);
+      }
+      // Also check item.type field from Picker API (e.g. "PHOTO" or "VIDEO")
+      if (item.type === 'VIDEO' || (item.mediaFile?.mediaFileMetadata?.videoMetadata)) {
+        if (!mimeType.startsWith('video/')) {
+          mimeType = isVideoFilename(filename) ? guessMimeType(filename) : 'video/mp4';
+        }
+      }
       const metadata = mediaFile.mediaFileMetadata || item.mediaMetadata || {};
+      console.log('[GooglePhotos] Item:', filename, 'type:', item.type, 'mimeType:', mimeType);
 
       if (!baseUrl) {
         console.warn('[GooglePhotos] Skipping item without baseUrl:', JSON.stringify(item));
@@ -263,14 +317,14 @@ export async function listPhotos(
 export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   if (!accessToken) throw new Error('Nicht angemeldet');
 
-  const isVideo = photo.mimeType.startsWith('video/');
-  console.log('[GooglePhotos] Downloading:', photo.filename, 'type:', photo.mimeType, 'isVideo:', isVideo);
+  const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
+  console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo);
 
   // Try multiple URL formats - Picker API may differ from Library API
   const urlsToTry = isVideo
     ? [
-        `${photo.baseUrl}=dv`,       // Library API video download
-        photo.baseUrl,                // Raw baseUrl
+        photo.baseUrl,                // Raw baseUrl (Picker API)
+        `${photo.baseUrl}=dv`,        // Library API video download
       ]
     : [
         `${photo.baseUrl}=d`,         // Library API full-res download
@@ -286,9 +340,22 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
       if (res.ok) {
         const blob = await res.blob();
         console.log('[GooglePhotos] Downloaded:', photo.filename, 'size:', blob.size, 'type:', blob.type);
-        // Use the actual blob type if available, fall back to photo.mimeType
-        const actualType = blob.type || photo.mimeType;
+        // Determine correct MIME type: prefer blob type, then photo metadata, then guess from filename
+        let actualType = blob.type;
+        if (!actualType || actualType === 'application/octet-stream') {
+          actualType = photo.mimeType;
+        }
+        if (!actualType || actualType === 'application/octet-stream' || actualType === 'image/jpeg') {
+          // Last resort: guess from filename extension
+          actualType = guessMimeType(photo.filename);
+        }
+        // Force video type if we detected it as video
+        if (isVideo && !actualType.startsWith('video/')) {
+          actualType = guessMimeType(photo.filename);
+          if (!actualType.startsWith('video/')) actualType = 'video/mp4';
+        }
         const filename = photo.filename || (isVideo ? 'video.mp4' : 'photo.jpg');
+        console.log('[GooglePhotos] Creating file:', filename, 'finalType:', actualType);
         return new File([blob], filename, { type: actualType });
       }
       console.warn('[GooglePhotos] URL failed:', res.status);
