@@ -153,36 +153,24 @@ async function pollPickerSession(
   sessionId: string,
   popup: Window | null
 ): Promise<GooglePhoto[]> {
-  const maxAttempts = 300; // 5 minutes max (300 * 1s)
-  let popupClosedCount = 0;
+  const maxAttempts = 600; // 10 minutes max (600 * 1s)
 
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 1000));
 
-    // Always check session first - don't rely on popup.closed (unreliable on mobile)
-    const sessionData = await checkSession(sessionId);
-    console.log('[GooglePhotos] Poll #' + i, JSON.stringify(sessionData));
-
-    if (sessionData.mediaItemsSet) {
-      try { if (popup && !popup.closed) popup.close(); } catch {}
-      return await getPickerMediaItems(sessionId);
-    }
-
-    // On mobile, popup.closed can be unreliable (cross-origin, new tab)
-    // Only treat as cancelled after popup has been closed for multiple polls
     try {
-      if (popup && popup.closed) {
-        popupClosedCount++;
-        // Wait for 5 consecutive polls with popup closed before giving up
-        if (popupClosedCount >= 5) {
-          console.log('[GooglePhotos] Popup closed for 5 polls, treating as cancelled');
-          return [];
-        }
-      } else {
-        popupClosedCount = 0;
+      const sessionData = await checkSession(sessionId);
+      if (i % 5 === 0) {
+        console.log('[GooglePhotos] Poll #' + i, JSON.stringify(sessionData));
       }
-    } catch {
-      // Cross-origin error accessing popup.closed - ignore
+
+      if (sessionData.mediaItemsSet) {
+        try { if (popup && !popup.closed) popup.close(); } catch {}
+        return await getPickerMediaItems(sessionId);
+      }
+    } catch (err) {
+      // Network error during poll - just retry
+      console.warn('[GooglePhotos] Poll error, retrying:', err);
     }
   }
 
