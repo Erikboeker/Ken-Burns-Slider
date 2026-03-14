@@ -98,6 +98,20 @@ export interface GooglePhoto {
 export async function openPhotoPicker(): Promise<GooglePhoto[]> {
   if (!accessToken) throw new Error('Nicht angemeldet');
 
+  // Verify token is still valid, refresh if needed
+  try {
+    const testRes = await fetch(`${PICKER_API_BASE}/sessions?pageSize=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (testRes.status === 401) {
+      console.log('[GooglePhotos] Token expired, requesting new one');
+      accessToken = null;
+      accessToken = await requestAccess();
+    }
+  } catch {
+    // Ignore validation errors, try to proceed
+  }
+
   // Step 1: Create a picker session
   const sessionRes = await fetch(`${PICKER_API_BASE}/sessions`, {
     method: 'POST',
@@ -110,18 +124,28 @@ export async function openPhotoPicker(): Promise<GooglePhoto[]> {
 
   if (!sessionRes.ok) {
     const errorBody = await sessionRes.text();
+    console.error('[GooglePhotos] Session creation failed:', sessionRes.status, errorBody);
+    // If 401, try to refresh token and retry once
+    if (sessionRes.status === 401) {
+      accessToken = null;
+      accessToken = await requestAccess();
+      return openPhotoPicker();
+    }
     throw new Error(`Picker Session Fehler: ${sessionRes.status} – ${errorBody}`);
   }
 
   const session = await sessionRes.json();
   const sessionId: string = session.id;
   const pickerUri: string = session.pickerUri;
+  console.log('[GooglePhotos] Created session:', sessionId, 'pickerUri:', pickerUri);
 
-  // Step 2: Open picker in a popup window
-  const popup = window.open(pickerUri, 'google-photos-picker', 'width=800,height=600');
+  // Step 2: Open picker in a popup window (unique name per session to avoid reuse)
+  const popupName = `google-photos-picker-${Date.now()}`;
+  const popup = window.open(pickerUri, popupName, 'width=800,height=600');
 
   // Step 3: Poll for completion
   const photos = await pollPickerSession(sessionId, popup);
+  console.log('[GooglePhotos] Got', photos.length, 'photos from picker');
   return photos;
 }
 
@@ -180,10 +204,13 @@ async function checkSession(sessionId: string): Promise<{ mediaItemsSet: boolean
 }
 
 async function getPickerMediaItems(sessionId: string): Promise<GooglePhoto[]> {
+  console.log('[GooglePhotos] Fetching media items for session:', sessionId);
   const photos: GooglePhoto[] = [];
   let pageToken: string | undefined;
+  let pageNum = 0;
 
   do {
+    pageNum++;
     const params = new URLSearchParams({
       sessionId,
       pageSize: '100',
@@ -200,7 +227,7 @@ async function getPickerMediaItems(sessionId: string): Promise<GooglePhoto[]> {
     }
 
     const data = await res.json();
-    console.log('[GooglePhotos] mediaItems response:', JSON.stringify(data));
+    console.log(`[GooglePhotos] mediaItems page ${pageNum} response:`, JSON.stringify(data).substring(0, 500));
 
     // The Picker API may use "mediaItems" or "pickingMediaItems"
     const items = data.mediaItems || data.pickingMediaItems || [];
@@ -218,26 +245,9 @@ async function getPickerMediaItems(sessionId: string): Promise<GooglePhoto[]> {
         continue;
       }
 
-      // Fetch thumbnail with auth header and create blob URL for display
-      let thumbnailUrl: string | undefined;
-      try {
-        const thumbRes = await fetch(`${baseUrl}=w300-h300-c`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (thumbRes.ok) {
-          const blob = await thumbRes.blob();
-          thumbnailUrl = URL.createObjectURL(blob);
-        } else {
-          console.warn('[GooglePhotos] Thumbnail fetch failed:', thumbRes.status);
-        }
-      } catch (e) {
-        console.warn('[GooglePhotos] Thumbnail fetch error:', e);
-      }
-
       photos.push({
         id: item.id || filename,
         baseUrl,
-        thumbnailUrl,
         filename,
         mimeType,
         width: parseInt(metadata.width || '0'),
