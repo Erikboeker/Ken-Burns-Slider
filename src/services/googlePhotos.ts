@@ -340,59 +340,97 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
   console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo, 'id:', photo.id);
 
-  // For videos: use Library API to get proper baseUrl that supports =dv
+  // For videos: try multiple approaches to get the actual video file
   if (isVideo) {
-    try {
-      const libraryUrl = await getLibraryBaseUrl(photo.id);
-      if (libraryUrl) {
-        console.log('[GooglePhotos] Got Library API baseUrl for video');
-        const videoUrl = `${libraryUrl}=dv`;
-        const res = await fetch(videoUrl, {
+    const debugResults: string[] = [];
+
+    // Approach 1: Picker baseUrl with =dv (direct video download)
+    const videoUrls = [
+      { label: 'baseUrl=dv', url: `${photo.baseUrl}=dv` },
+      { label: 'baseUrl=m37', url: `${photo.baseUrl}=m37` },
+      { label: 'baseUrl=m22', url: `${photo.baseUrl}=m22` },
+      { label: 'baseUrl=m18', url: `${photo.baseUrl}=m18` },
+    ];
+
+    for (const { label, url } of videoUrls) {
+      try {
+        const res = await fetch(url, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        console.log('[GooglePhotos] Video download response:', res.status, 'size:', res.headers.get('content-length'));
-        if (res.ok) {
-          const blob = await res.blob();
-          console.log('[GooglePhotos] Video blob size:', blob.size);
-          if (blob.size > 100 * 1024) { // > 100KB = real video
-            const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
-            return new File([blob], photo.filename || 'video.mp4', { type: actualType });
+        const blob = await res.blob();
+        debugResults.push(`${label}: status=${res.status} size=${blob.size} type=${blob.type}`);
+        console.log(`[GooglePhotos] Video ${label}: status=${res.status} size=${blob.size} type=${blob.type}`);
+
+        if (res.ok && blob.size > 100 * 1024) {
+          const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
+          alert(`VIDEO ERFOLG: ${label}\nGröße: ${(blob.size / 1024 / 1024).toFixed(1)} MB`);
+          return new File([blob], photo.filename || 'video.mp4', { type: actualType });
+        }
+      } catch (err) {
+        debugResults.push(`${label}: ERROR ${err}`);
+      }
+    }
+
+    // Approach 2: Library API lookup by ID
+    try {
+      const libRes = await fetch(`${LIBRARY_API_BASE}/mediaItems/${photo.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      debugResults.push(`LibraryAPI(id=${photo.id}): status=${libRes.status}`);
+      if (libRes.ok) {
+        const libData = await libRes.json();
+        if (libData.baseUrl) {
+          const dvUrl = `${libData.baseUrl}=dv`;
+          const dvRes = await fetch(dvUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          const dvBlob = await dvRes.blob();
+          debugResults.push(`LibraryAPI=dv: status=${dvRes.status} size=${dvBlob.size}`);
+          if (dvRes.ok && dvBlob.size > 100 * 1024) {
+            return new File([dvBlob], photo.filename || 'video.mp4', {
+              type: dvBlob.type?.startsWith('video/') ? dvBlob.type : guessMimeType(photo.filename),
+            });
           }
         }
+      } else {
+        const errText = await libRes.text();
+        debugResults.push(`LibraryAPI error body: ${errText.substring(0, 200)}`);
       }
     } catch (err) {
-      console.warn('[GooglePhotos] Library API video download failed:', err);
+      debugResults.push(`LibraryAPI: ERROR ${err}`);
     }
+
+    // Show debug info
+    alert(`VIDEO DEBUG für ${photo.filename}:\n\n${debugResults.join('\n')}\n\nbaseUrl: ${photo.baseUrl.substring(0, 80)}...`);
+
+    // Fall through to image fallback below
   }
 
   // For images (or video fallback): use Picker API baseUrl
   const urlsToTry = [
-    `${photo.baseUrl}=d`,           // Full-res download
-    photo.baseUrl,                  // Raw baseUrl
-    `${photo.baseUrl}=w0-h0`,      // Max size variant
+    `${photo.baseUrl}=d`,
+    photo.baseUrl,
+    `${photo.baseUrl}=w0-h0`,
   ];
 
   for (const url of urlsToTry) {
     try {
-      console.log('[GooglePhotos] Trying URL:', url.substring(0, 100));
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.ok) {
         const blob = await res.blob();
-        console.log('[GooglePhotos] Downloaded:', photo.filename, 'size:', blob.size, 'blobType:', blob.type);
         if (blob.size === 0) continue;
 
         let actualType = blob.type;
         if (!actualType || actualType === 'application/octet-stream') {
           actualType = isVideo ? 'image/jpeg' : (photo.mimeType || guessMimeType(photo.filename));
         }
-        // If this was a video but we couldn't get real video, import as image
         const filename = isVideo
           ? (photo.filename.replace(/\.\w+$/, '.jpg') || 'video_thumbnail.jpg')
           : (photo.filename || 'photo.jpg');
         if (isVideo) {
-          actualType = 'image/jpeg'; // Force image type for video thumbnails
+          actualType = 'image/jpeg';
         }
         return new File([blob], filename, { type: actualType });
       }
@@ -402,26 +440,6 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   }
 
   throw new Error(`Download fehlgeschlagen: ${photo.filename}`);
-}
-
-// Fetch the real baseUrl from Library API (needed for video =dv downloads)
-async function getLibraryBaseUrl(mediaItemId: string): Promise<string | null> {
-  try {
-    const res = await fetch(`${LIBRARY_API_BASE}/mediaItems/${mediaItemId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    console.log('[GooglePhotos] Library API mediaItem response:', res.status);
-    if (res.ok) {
-      const data = await res.json();
-      console.log('[GooglePhotos] Library API baseUrl available:', !!data.baseUrl);
-      return data.baseUrl || null;
-    }
-    const errorBody = await res.text();
-    console.warn('[GooglePhotos] Library API error:', res.status, errorBody);
-  } catch (err) {
-    console.warn('[GooglePhotos] Library API fetch error:', err);
-  }
-  return null;
 }
 
 // Type declarations for Google Identity Services
