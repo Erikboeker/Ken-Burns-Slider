@@ -203,10 +203,10 @@ async function pollPickerSession(
       if (popup && popup.closed) {
         if (!popupClosedSince) {
           popupClosedSince = Date.now();
-          console.log('[GooglePhotos] Popup/tab appears closed, waiting 15s for mediaItemsSet...');
-        } else if (Date.now() - popupClosedSince > 15000) {
-          // 15 seconds since popup closed and still no mediaItemsSet
-          console.log('[GooglePhotos] Popup closed for 15s without mediaItemsSet, treating as cancelled');
+          console.log('[GooglePhotos] Popup/tab appears closed, waiting 30s for mediaItemsSet...');
+        } else if (Date.now() - popupClosedSince > 30000) {
+          // 30 seconds since popup closed and still no mediaItemsSet
+          console.log('[GooglePhotos] Popup closed for 30s without mediaItemsSet, treating as cancelled');
           return [];
         }
       } else {
@@ -221,7 +221,7 @@ async function pollPickerSession(
   throw new Error('Zeitüberschreitung beim Warten auf Fotoauswahl');
 }
 
-async function checkSession(sessionId: string): Promise<{ mediaItemsSet: boolean }> {
+async function checkSession(sessionId: string): Promise<{ mediaItemsSet: boolean; [key: string]: unknown }> {
   const res = await fetch(`${PICKER_API_BASE}/sessions/${sessionId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -231,7 +231,10 @@ async function checkSession(sessionId: string): Promise<{ mediaItemsSet: boolean
     throw new Error(`Session-Abfrage Fehler: ${res.status} – ${errorBody}`);
   }
 
-  return await res.json();
+  const data = await res.json();
+  // Log full session data to help debug
+  console.log('[GooglePhotos] Session data:', JSON.stringify(data));
+  return data;
 }
 
 async function getPickerMediaItems(sessionId: string): Promise<GooglePhoto[]> {
