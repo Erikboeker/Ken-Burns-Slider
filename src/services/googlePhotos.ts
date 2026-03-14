@@ -14,7 +14,13 @@ const PICKER_API_BASE = 'https://photospicker.googleapis.com/v1';
 const LIBRARY_API_BASE = 'https://photoslibrary.googleapis.com/v1';
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
-let accessToken: string | null = sessionStorage.getItem('gphoto_token');
+// Force re-auth if old token doesn't have library scope
+let accessToken: string | null = sessionStorage.getItem('gphoto_scopes_v2')
+  ? sessionStorage.getItem('gphoto_token')
+  : null;
+if (!sessionStorage.getItem('gphoto_scopes_v2')) {
+  sessionStorage.removeItem('gphoto_token');
+}
 
 // Load Google Identity Services script
 let gsiLoaded = false;
@@ -53,6 +59,7 @@ export function signOut() {
   }
   accessToken = null;
   sessionStorage.removeItem('gphoto_token');
+  sessionStorage.removeItem('gphoto_scopes_v2');
 }
 
 export function requestAccess(): Promise<string> {
