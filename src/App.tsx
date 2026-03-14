@@ -1117,7 +1117,8 @@ export default function App() {
 
       if (photos.length === 0) {
         setGooglePhotosLoading(false);
-        return; // User cancelled or no photos selected
+        setGooglePhotosError('Picker: 0 Elemente zurückgegeben. Möglicherweise wurde die Auswahl abgebrochen oder Videos werden vom Picker nicht unterstützt.');
+        return;
       }
 
       // Download and import directly - no second selection needed
