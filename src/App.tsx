@@ -61,6 +61,7 @@ type PlaylistItem = {
   originalDuration: number;
   panStart?: Rect;
   panEnd?: Rect;
+  musicVolume?: number; // 0-100, background music volume during this video (default 100)
 };
 
 const getDominantColor = (source: HTMLImageElement | HTMLVideoElement): RGB => {
@@ -142,6 +143,7 @@ function ImageEditor({
   const [panStart, setPanStart] = useState<Rect>(item.panStart ?? item.rect);
   const [panEnd, setPanEnd] = useState<Rect>(item.panEnd ?? item.rect);
   const [panEditTarget, setPanEditTarget] = useState<'start' | 'end'>('start');
+  const [musicVolume, setMusicVolume] = useState<number>(item.musicVolume ?? 100);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number, startY: number, startRect: Rect, type: 'move' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -229,11 +231,12 @@ function ImageEditor({
         trimEnd,
         customTitle: useDefaultTitle ? undefined : customTitle,
         panStart: mode === 'pan' ? (panEditTarget === 'start' ? rect : panStart) : undefined,
-        panEnd: mode === 'pan' ? (panEditTarget === 'end' ? rect : panEnd) : undefined
+        panEnd: mode === 'pan' ? (panEditTarget === 'end' ? rect : panEnd) : undefined,
+        musicVolume: isVideo ? musicVolume : undefined
       });
     }, 100);
     return () => clearTimeout(timer);
-  }, [rect, mode, duration, trimStart, trimEnd, useDefaultTitle, customTitle, onSave, isVideo, panStart, panEnd, panEditTarget]);
+  }, [rect, mode, duration, trimStart, trimEnd, useDefaultTitle, customTitle, onSave, isVideo, panStart, panEnd, panEditTarget, musicVolume]);
 
   const handlePointerDown = (e: React.PointerEvent, type: 'move' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' = 'move') => {
     e.preventDefault();
@@ -537,6 +540,22 @@ function ImageEditor({
                 />
               </div>
             </div>
+            <div className="space-y-2 pt-4 border-t border-zinc-800/50">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-zinc-400">Musiklaustärke bei diesem Video</label>
+                <span className="text-xs font-mono text-indigo-400">{musicVolume}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={musicVolume}
+                onChange={e => setMusicVolume(Number(e.target.value))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <p className="text-[11px] text-zinc-500">Senkt die Hintergrundmusik ab, damit der Video-Ton hörbar bleibt</p>
+            </div>
           </div>
         )}
 
@@ -792,7 +811,7 @@ const SortableItem: React.FC<SortableItemProps> = ({
         )}
       </div>
 
-      <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 opacity-100 [@media(hover:hover)]:sm:opacity-0 [@media(hover:hover)]:sm:group-hover:opacity-100 transition-opacity">
         <button
           onClick={() => setEditingId(item.id)}
           className={`p-1.5 rounded-lg transition-colors ${editingId === item.id ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
@@ -822,7 +841,6 @@ export default function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('mp4');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [musicVolumeDuringVideo, setMusicVolumeDuringVideo] = useState(20); // 0-100%
   const [showTitleOverlay, setShowTitleOverlay] = useState(false);
 
   const [items, setItems] = useState<PlaylistItem[]>([]);
@@ -1330,29 +1348,44 @@ export default function App() {
         return { start, end, duration: item.duration };
       });
 
-      // Schedule audio gain: duck during video slides, fade out at end
+      // Schedule audio gain: duck during video slides (per-item volume), fade out at end
       if (gainNode && audioCtx) {
         const now = audioCtx.currentTime;
         const videoDurationSec = totalDuration / 1000;
-        const duckedVolume = musicVolumeDuringVideo / 100;
-        const rampTime = 0.3; // 300ms ramp for smooth transitions
+        const rampTime = 1.5; // 1.5s smooth crossfade
 
         // Start at full volume
         gainNode.gain.setValueAtTime(1.0, now);
 
-        // Schedule ducking for each video item
+        // Schedule ducking for each video item based on its individual musicVolume
         for (let i = 0; i < items.length; i++) {
           if (items[i].type === 'video') {
+            const duckedVolume = (items[i].musicVolume ?? 100) / 100;
             const startSec = timings[i].start / 1000;
             const endSec = timings[i].end / 1000;
-            // Ramp down to ducked volume at video start
-            gainNode.gain.setValueAtTime(gainNode.gain.value, now + Math.max(0, startSec - rampTime));
-            gainNode.gain.linearRampToValueAtTime(duckedVolume, now + startSec);
-            // Ramp back up at video end (unless next item is also video)
+
+            // Smooth ramp down to this video's ducked volume
+            const rampDownStart = Math.max(0, startSec - rampTime);
+            gainNode.gain.setValueAtTime(gainNode.gain.value, now + rampDownStart);
+            gainNode.gain.exponentialRampToValueAtTime(
+              Math.max(0.001, duckedVolume), // exponentialRamp can't go to 0
+              now + startSec
+            );
+
+            // Smooth ramp back up at video end (unless next item is also video)
             const nextIsVideo = i + 1 < items.length && items[i + 1].type === 'video';
             if (!nextIsVideo) {
-              gainNode.gain.setValueAtTime(duckedVolume, now + endSec);
-              gainNode.gain.linearRampToValueAtTime(1.0, now + endSec + rampTime);
+              gainNode.gain.setValueAtTime(Math.max(0.001, duckedVolume), now + endSec);
+              gainNode.gain.exponentialRampToValueAtTime(1.0, now + Math.min(endSec + rampTime, videoDurationSec));
+            }
+            // If next is also a video, smoothly transition to its volume
+            else {
+              const nextDucked = (items[i + 1].musicVolume ?? 100) / 100;
+              gainNode.gain.setValueAtTime(Math.max(0.001, duckedVolume), now + endSec);
+              gainNode.gain.exponentialRampToValueAtTime(
+                Math.max(0.001, nextDucked),
+                now + timings[i + 1].start / 1000
+              );
             }
           }
         }
@@ -1744,7 +1777,6 @@ export default function App() {
         defaultDuration,
         exportFormat,
         showTitleOverlay,
-        musicVolumeDuringVideo,
         audioFile: audioFile || undefined,
         items: items.map(item => ({
           id: item.id,
@@ -1759,7 +1791,8 @@ export default function App() {
           trimEnd: item.trimEnd,
           originalDuration: item.originalDuration,
           panStart: item.panStart,
-          panEnd: item.panEnd
+          panEnd: item.panEnd,
+          musicVolume: item.musicVolume
         }))
       };
 
@@ -1791,7 +1824,6 @@ export default function App() {
       setDefaultDuration(project.defaultDuration);
       setExportFormat(project.exportFormat);
       setShowTitleOverlay(project.showTitleOverlay);
-      setMusicVolumeDuringVideo(project.musicVolumeDuringVideo ?? 20);
       setCurrentProjectId(project.id || null);
       
       if (project.audioFile) {
@@ -2072,23 +2104,6 @@ export default function App() {
                   </button>
                 )}
               </div>
-              {audioFile && (
-                <div className="mt-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs text-zinc-400">Musiklaustärke bei Videos</label>
-                    <span className="text-xs text-zinc-500">{musicVolumeDuringVideo}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={musicVolumeDuringVideo}
-                    onChange={e => setMusicVolumeDuringVideo(Number(e.target.value))}
-                    className="w-full accent-indigo-500"
-                  />
-                  <p className="text-[11px] text-zinc-500">Senkt die Musik ab, damit der Video-Ton hörbar bleibt</p>
-                </div>
-              )}
             </div>
 
             <div className="space-y-2 pt-2">
@@ -2694,7 +2709,7 @@ export default function App() {
                             {new Date(project.updatedAt).toLocaleDateString()} · {project.items.length} Medien
                           </p>
                         </div>
-                        <div className="flex items-center gap-1 ml-3 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 ml-3 opacity-100 [@media(hover:hover)]:sm:opacity-0 [@media(hover:hover)]:sm:group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={(e) => { e.stopPropagation(); project.id && deleteProject(project.id); }}
                             className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
@@ -2897,23 +2912,6 @@ export default function App() {
                     </button>
                   )}
                 </div>
-                {audioFile && (
-                  <div className="mt-3 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs text-zinc-400">Musiklaustärke bei Videos</label>
-                      <span className="text-xs text-zinc-500">{musicVolumeDuringVideo}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={musicVolumeDuringVideo}
-                      onChange={e => setMusicVolumeDuringVideo(Number(e.target.value))}
-                      className="w-full accent-indigo-500"
-                    />
-                    <p className="text-[11px] text-zinc-500">Senkt die Musik ab, damit der Video-Ton hörbar bleibt</p>
-                  </div>
-                )}
               </div>
 
               <div className="space-y-2 pt-2">
