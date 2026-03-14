@@ -8,19 +8,12 @@ try {
   // fallback
 }
 
-// Picker API scope + Library API scope (needed for actual video downloads)
-const SCOPES = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly https://www.googleapis.com/auth/photoslibrary.readonly';
+// Picker API scope only - video downloads go through server-side proxy to bypass CORS
+const SCOPES = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
 const PICKER_API_BASE = 'https://photospicker.googleapis.com/v1';
-const LIBRARY_API_BASE = 'https://photoslibrary.googleapis.com/v1';
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
-// Force re-auth if old token doesn't have library scope
-let accessToken: string | null = sessionStorage.getItem('gphoto_scopes_v2')
-  ? sessionStorage.getItem('gphoto_token')
-  : null;
-if (!sessionStorage.getItem('gphoto_scopes_v2')) {
-  sessionStorage.removeItem('gphoto_token');
-}
+let accessToken: string | null = sessionStorage.getItem('gphoto_token');
 
 // Load Google Identity Services script
 let gsiLoaded = false;
@@ -59,7 +52,6 @@ export function signOut() {
   }
   accessToken = null;
   sessionStorage.removeItem('gphoto_token');
-  sessionStorage.removeItem('gphoto_scopes_v2');
 }
 
 export function requestAccess(): Promise<string> {
@@ -69,11 +61,6 @@ export function requestAccess(): Promise<string> {
       return;
     }
 
-    // Force re-auth to ensure we have both picker + library scopes
-    if (accessToken && !sessionStorage.getItem('gphoto_scopes_v2')) {
-      accessToken = null;
-      sessionStorage.removeItem('gphoto_token');
-    }
     if (accessToken) {
       resolve(accessToken);
       return;
@@ -89,7 +76,6 @@ export function requestAccess(): Promise<string> {
         }
         accessToken = response.access_token;
         sessionStorage.setItem('gphoto_token', response.access_token);
-        sessionStorage.setItem('gphoto_scopes_v2', '1');
         resolve(response.access_token);
       },
     });
@@ -340,68 +326,36 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
   console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo, 'id:', photo.id);
 
-  // For videos: try multiple approaches to get the actual video file
+  // For videos: use server-side proxy to bypass CORS restrictions on =dv downloads
   if (isVideo) {
-    const debugResults: string[] = [];
+    try {
+      const videoUrl = `${photo.baseUrl}=dv`;
+      console.log('[GooglePhotos] Downloading video via proxy:', photo.filename);
 
-    // Approach 1: Picker baseUrl with =dv (direct video download)
-    const videoUrls = [
-      { label: 'baseUrl=dv', url: `${photo.baseUrl}=dv` },
-      { label: 'baseUrl=m37', url: `${photo.baseUrl}=m37` },
-      { label: 'baseUrl=m22', url: `${photo.baseUrl}=m22` },
-      { label: 'baseUrl=m18', url: `${photo.baseUrl}=m18` },
-    ];
+      const proxyRes = await fetch('/api/proxy-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: videoUrl, token: accessToken }),
+      });
 
-    for (const { label, url } of videoUrls) {
-      try {
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        const blob = await res.blob();
-        debugResults.push(`${label}: status=${res.status} size=${blob.size} type=${blob.type}`);
-        console.log(`[GooglePhotos] Video ${label}: status=${res.status} size=${blob.size} type=${blob.type}`);
+      console.log('[GooglePhotos] Proxy response:', proxyRes.status, 'type:', proxyRes.headers.get('content-type'));
 
-        if (res.ok && blob.size > 100 * 1024) {
+      if (proxyRes.ok) {
+        const blob = await proxyRes.blob();
+        console.log('[GooglePhotos] Proxy video blob:', blob.size, blob.type);
+
+        if (blob.size > 100 * 1024) { // > 100KB = real video
           const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
-          alert(`VIDEO ERFOLG: ${label}\nGröße: ${(blob.size / 1024 / 1024).toFixed(1)} MB`);
           return new File([blob], photo.filename || 'video.mp4', { type: actualType });
         }
-      } catch (err) {
-        debugResults.push(`${label}: ERROR ${err}`);
-      }
-    }
-
-    // Approach 2: Library API lookup by ID
-    try {
-      const libRes = await fetch(`${LIBRARY_API_BASE}/mediaItems/${photo.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      debugResults.push(`LibraryAPI(id=${photo.id}): status=${libRes.status}`);
-      if (libRes.ok) {
-        const libData = await libRes.json();
-        if (libData.baseUrl) {
-          const dvUrl = `${libData.baseUrl}=dv`;
-          const dvRes = await fetch(dvUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
-          const dvBlob = await dvRes.blob();
-          debugResults.push(`LibraryAPI=dv: status=${dvRes.status} size=${dvBlob.size}`);
-          if (dvRes.ok && dvBlob.size > 100 * 1024) {
-            return new File([dvBlob], photo.filename || 'video.mp4', {
-              type: dvBlob.type?.startsWith('video/') ? dvBlob.type : guessMimeType(photo.filename),
-            });
-          }
-        }
+        console.warn('[GooglePhotos] Proxy returned small blob, probably thumbnail. size:', blob.size);
       } else {
-        const errText = await libRes.text();
-        debugResults.push(`LibraryAPI error body: ${errText.substring(0, 200)}`);
+        const errText = await proxyRes.text();
+        console.warn('[GooglePhotos] Proxy error:', proxyRes.status, errText);
       }
     } catch (err) {
-      debugResults.push(`LibraryAPI: ERROR ${err}`);
+      console.warn('[GooglePhotos] Proxy video download failed:', err);
     }
-
-    // Show debug info
-    alert(`VIDEO DEBUG für ${photo.filename}:\n\n${debugResults.join('\n')}\n\nbaseUrl: ${photo.baseUrl.substring(0, 80)}...`);
 
     // Fall through to image fallback below
   }

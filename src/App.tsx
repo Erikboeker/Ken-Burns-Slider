@@ -968,7 +968,7 @@ export default function App() {
           element.crossOrigin = 'anonymous';
           await new Promise((resolve) => {
             let timeout = setTimeout(() => {
-              alert(`[DEBUG video] Timeout! videoWidth=${(element as HTMLVideoElement).videoWidth} readyState=${(element as HTMLVideoElement).readyState} error=${(element as HTMLVideoElement).error?.message || 'none'} networkState=${(element as HTMLVideoElement).networkState} src=${url.substring(0, 60)}`);
+              console.warn('[Video] Load timeout:', (element as HTMLVideoElement).readyState);
               resolve(null);
             }, 10000);
             const checkReady = () => {
@@ -979,7 +979,7 @@ export default function App() {
                 height = (element as HTMLVideoElement).videoHeight;
                 itemDuration = (element as HTMLVideoElement).duration * 1000;
                 if (!itemDuration || !isFinite(itemDuration)) itemDuration = defaultDuration * 1000;
-                alert(`[DEBUG video] Loaded OK! ${width}x${height} duration=${itemDuration}ms`);
+                console.log('[Video] Loaded:', width, 'x', height, 'duration:', itemDuration);
                 resolve(null);
               }
             };
@@ -989,7 +989,7 @@ export default function App() {
             element.onerror = (e) => {
               clearTimeout(timeout);
               const ve = (element as HTMLVideoElement).error;
-              alert(`[DEBUG video] Error! code=${ve?.code} msg=${ve?.message} type=${file.type} size=${file.size}`);
+              console.warn('[Video] Error:', ve?.code, ve?.message);
               resolve(null);
             };
             (element as HTMLVideoElement).load();
@@ -1110,44 +1110,32 @@ export default function App() {
     setGooglePhotosLoading(true);
 
     try {
-      alert('[DEBUG 1] Start Google Photos');
       await googlePhotos.loadGsi();
 
       if (!googlePhotos.isSignedIn()) {
         await googlePhotos.requestAccess();
         setGoogleSignedIn(true);
       }
-      alert('[DEBUG 2] Signed in, opening picker...');
 
       // Picker UI handles selection - get picked photos directly
       const result = await googlePhotos.listPhotos();
       const photos = result.photos;
-      alert(`[DEBUG 3] Picker returned ${photos.length} items`);
 
       if (photos.length === 0) {
         setGooglePhotosLoading(false);
-        alert('[DEBUG] Picker returned 0 items - cancelled or not supported');
         return;
       }
 
       // Download and import directly - no second selection needed
       const files: File[] = [];
-      const debugLines: string[] = [];
-      debugLines.push(`Picker: ${photos.length} items selected`);
       for (const photo of photos) {
-        const info = `${photo.filename} | mime: ${photo.mimeType}`;
-        debugLines.push(`→ ${info}`);
         try {
           const file = await googlePhotos.downloadPhoto(photo);
-          debugLines.push(`  ✓ OK size=${file.size} type=${file.type}`);
           files.push(file);
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          debugLines.push(`  ✗ FAIL: ${msg}`);
+          console.warn('Download failed:', photo.filename, err);
         }
       }
-      debugLines.push(`Result: ${files.length}/${photos.length} downloaded`);
-      alert('[DEBUG 4] Downloads done:\n' + debugLines.join('\n'));
 
       if (files.length > 0) {
         await handleFiles(files);
@@ -1155,7 +1143,6 @@ export default function App() {
         setGooglePhotosError('Keine Fotos konnten heruntergeladen werden');
       }
     } catch (err) {
-      alert('[DEBUG ERROR] ' + (err instanceof Error ? err.message : String(err)));
       setGooglePhotosError((err as Error).message);
     } finally {
       setGooglePhotosLoading(false);
