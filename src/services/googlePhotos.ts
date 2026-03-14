@@ -85,6 +85,7 @@ export function requestAccess(): Promise<string> {
 export interface GooglePhoto {
   id: string;
   baseUrl: string;
+  thumbnailUrl?: string; // Blob URL for display (Picker API requires auth headers)
   filename: string;
   mimeType: string;
   width: number;
@@ -217,9 +218,26 @@ async function getPickerMediaItems(sessionId: string): Promise<GooglePhoto[]> {
         continue;
       }
 
+      // Fetch thumbnail with auth header and create blob URL for display
+      let thumbnailUrl: string | undefined;
+      try {
+        const thumbRes = await fetch(`${baseUrl}=w300-h300-c`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (thumbRes.ok) {
+          const blob = await thumbRes.blob();
+          thumbnailUrl = URL.createObjectURL(blob);
+        } else {
+          console.warn('[GooglePhotos] Thumbnail fetch failed:', thumbRes.status);
+        }
+      } catch (e) {
+        console.warn('[GooglePhotos] Thumbnail fetch error:', e);
+      }
+
       photos.push({
         id: item.id || filename,
         baseUrl,
+        thumbnailUrl,
         filename,
         mimeType,
         width: parseInt(metadata.width || '0'),

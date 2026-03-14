@@ -2899,10 +2899,14 @@ export default function App() {
                           }`}
                         >
                           <img
-                            src={`${photo.baseUrl}=w300-h300-c`}
+                            src={photo.thumbnailUrl || `${photo.baseUrl}=w300-h300-c`}
                             alt={photo.filename}
                             loading="lazy"
                             className="w-full h-full object-cover"
+                            onError={(e) => {
+                              console.warn('[GooglePhotos] Image load error for', photo.filename, photo.baseUrl);
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
                           />
                           {googlePhotosSelected.has(photo.id) && (
                             <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
