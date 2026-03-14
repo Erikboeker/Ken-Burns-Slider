@@ -132,7 +132,9 @@ export async function listPhotos(
   }
 
   if (!res.ok) {
-    throw new Error(`Google Photos API Fehler: ${res.status}`);
+    const errorBody = await res.text();
+    console.error('Google Photos API error:', res.status, errorBody);
+    throw new Error(`Google Photos API Fehler: ${res.status} – ${errorBody}`);
   }
 
   const data: MediaItemsResponse = await res.json();
