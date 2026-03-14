@@ -10,7 +10,6 @@ export interface Project {
   defaultDuration: number;
   exportFormat: 'mp4' | 'webm';
   showTitleOverlay: boolean;
-  musicVolumeDuringVideo?: number;
   audioFile?: File;
   items: {
     id: string;
@@ -26,6 +25,7 @@ export interface Project {
     originalDuration: number;
     panStart?: { x: number; y: number; w: number; h: number };
     panEnd?: { x: number; y: number; w: number; h: number };
+    musicVolume?: number;
   }[];
 }
 
