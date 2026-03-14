@@ -129,29 +129,39 @@ async function pollPickerSession(
   popup: Window | null
 ): Promise<GooglePhoto[]> {
   const maxAttempts = 300; // 5 minutes max (300 * 1s)
+  let popupClosedCount = 0;
 
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1500));
 
-    // Check if user closed the popup without selecting
-    if (popup && popup.closed) {
-      // Give it one more check in case they just finished
-      const finalCheck = await checkSession(sessionId);
-      if (finalCheck.mediaItemsSet) {
-        return await getPickerMediaItems(sessionId);
-      }
-      return []; // User cancelled
-    }
-
+    // Always check session first - don't rely on popup.closed (unreliable on mobile)
     const sessionData = await checkSession(sessionId);
+    console.log('[GooglePhotos] Poll #' + i, JSON.stringify(sessionData));
 
     if (sessionData.mediaItemsSet) {
-      if (popup && !popup.closed) popup.close();
+      try { if (popup && !popup.closed) popup.close(); } catch {}
       return await getPickerMediaItems(sessionId);
+    }
+
+    // On mobile, popup.closed can be unreliable (cross-origin, new tab)
+    // Only treat as cancelled after popup has been closed for multiple polls
+    try {
+      if (popup && popup.closed) {
+        popupClosedCount++;
+        // Wait for 5 consecutive polls with popup closed before giving up
+        if (popupClosedCount >= 5) {
+          console.log('[GooglePhotos] Popup closed for 5 polls, treating as cancelled');
+          return [];
+        }
+      } else {
+        popupClosedCount = 0;
+      }
+    } catch {
+      // Cross-origin error accessing popup.closed - ignore
     }
   }
 
-  if (popup && !popup.closed) popup.close();
+  try { if (popup && !popup.closed) popup.close(); } catch {}
   throw new Error('Zeitüberschreitung beim Warten auf Fotoauswahl');
 }
 
@@ -189,20 +199,33 @@ async function getPickerMediaItems(sessionId: string): Promise<GooglePhoto[]> {
     }
 
     const data = await res.json();
+    console.log('[GooglePhotos] mediaItems response:', JSON.stringify(data));
 
-    for (const item of data.mediaItems || []) {
-      const mediaFile = item.mediaFile;
-      if (!mediaFile) continue;
+    // The Picker API may use "mediaItems" or "pickingMediaItems"
+    const items = data.mediaItems || data.pickingMediaItems || [];
+
+    for (const item of items) {
+      // Handle both Picker API structures
+      const mediaFile = item.mediaFile || item;
+      const baseUrl = mediaFile.baseUrl || item.baseUrl || '';
+      const filename = mediaFile.filename || item.filename || 'photo.jpg';
+      const mimeType = mediaFile.mimeType || item.mimeType || 'image/jpeg';
+      const metadata = mediaFile.mediaFileMetadata || item.mediaMetadata || {};
+
+      if (!baseUrl) {
+        console.warn('[GooglePhotos] Skipping item without baseUrl:', JSON.stringify(item));
+        continue;
+      }
 
       photos.push({
-        id: item.id || mediaFile.filename,
-        baseUrl: mediaFile.baseUrl || '',
-        filename: mediaFile.filename || 'photo.jpg',
-        mimeType: mediaFile.mimeType || 'image/jpeg',
-        width: parseInt(mediaFile.mediaFileMetadata?.width || '0'),
-        height: parseInt(mediaFile.mediaFileMetadata?.height || '0'),
-        creationTime: mediaFile.mediaFileMetadata?.creationTime || '',
-        productUrl: '',
+        id: item.id || filename,
+        baseUrl,
+        filename,
+        mimeType,
+        width: parseInt(metadata.width || '0'),
+        height: parseInt(metadata.height || '0'),
+        creationTime: metadata.creationTime || '',
+        productUrl: item.productUrl || '',
       });
     }
 
