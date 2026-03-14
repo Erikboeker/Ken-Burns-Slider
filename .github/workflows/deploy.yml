@@ -26,9 +26,7 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build
-        env:
-          GITHUB_PAGES: true
+      - run: VITE_BASE=/Ken-Burns-Slider/ npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
