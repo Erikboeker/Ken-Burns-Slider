@@ -931,14 +931,27 @@ export default function App() {
 
   const handleFiles = useCallback(async (newFiles: File[]) => {
     console.log('[handleFiles] Received files:', newFiles.map(f => `${f.name} (${f.type}, ${f.size})`));
-    const validFiles = newFiles.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
-    console.log('[handleFiles] Valid files after filter:', validFiles.map(f => `${f.name} (${f.type})`));
+
+    // Detect video/image by MIME type or file extension
+    const isVideoFile = (f: File) => {
+      if (f.type.startsWith('video/')) return true;
+      const ext = f.name.toLowerCase().split('.').pop();
+      return ['mp4', 'mov', 'avi', 'webm', 'mkv', 'm4v', '3gp'].includes(ext || '');
+    };
+    const isImageFile = (f: File) => {
+      if (f.type.startsWith('image/')) return true;
+      const ext = f.name.toLowerCase().split('.').pop();
+      return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif', 'avif'].includes(ext || '');
+    };
+
+    const validFiles = newFiles.filter(f => isImageFile(f) || isVideoFile(f));
+    console.log('[handleFiles] Valid files after filter:', validFiles.map(f => `${f.name} (${f.type}, isVideo: ${isVideoFile(f)})`));
     if (validFiles.length === 0) return;
 
     const loadedItems = await Promise.all(
       validFiles.map(async (file) => {
         const url = URL.createObjectURL(file);
-        const isVideo = file.type.startsWith('video/');
+        const isVideo = isVideoFile(file);
         
         let element: HTMLImageElement | HTMLVideoElement;
         let width = 0;
