@@ -65,9 +65,13 @@ export function requestAccess(): Promise<string> {
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: SCOPES,
+      include_granted_scopes: true,
       callback: (response: any) => {
-        console.log('OAuth response:', JSON.stringify(response));
-        console.log('Granted scopes:', response.scope);
+        const grantedScopes = response.scope || 'keine';
+        const hasPhotosScope = grantedScopes.includes('photoslibrary');
+        if (!hasPhotosScope) {
+          alert(`Scope-Problem!\n\nAngefordert: ${SCOPES}\nGewährt: ${grantedScopes}\n\nDer Photos-Scope wurde nicht gewährt.`);
+        }
         if (response.error) {
           reject(new Error(response.error_description || response.error));
           return;
@@ -75,7 +79,7 @@ export function requestAccess(): Promise<string> {
         accessToken = response.access_token;
         resolve(response.access_token);
       },
-    });
+    } as any);
 
     tokenClient.requestAccessToken({ prompt: 'consent' });
   });
