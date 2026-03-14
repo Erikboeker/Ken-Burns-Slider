@@ -23,6 +23,8 @@ export interface Project {
     trimStart: number;
     trimEnd: number;
     originalDuration: number;
+    panStart?: { x: number; y: number; w: number; h: number };
+    panEnd?: { x: number; y: number; w: number; h: number };
   }[];
 }
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Play, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown } from 'lucide-react';
+import { Upload, Play, Pause, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown, Volume2, StopCircle, Move } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { db, type Project } from './services/storage';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -58,6 +58,8 @@ type PlaylistItem = {
   trimStart: number;
   trimEnd: number;
   originalDuration: number;
+  panStart?: Rect;
+  panEnd?: Rect;
 };
 
 const getDominantColor = (source: HTMLImageElement | HTMLVideoElement): RGB => {
@@ -136,6 +138,9 @@ function ImageEditor({
   const [useDefaultTitle, setUseDefaultTitle] = useState(item.customTitle === undefined);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [customTitle, setCustomTitle] = useState(item.customTitle ?? projectTitle);
+  const [panStart, setPanStart] = useState<Rect>(item.panStart ?? item.rect);
+  const [panEnd, setPanEnd] = useState<Rect>(item.panEnd ?? item.rect);
+  const [panEditTarget, setPanEditTarget] = useState<'start' | 'end'>('start');
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number, startY: number, startRect: Rect, type: 'move' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -196,25 +201,38 @@ function ImageEditor({
     }
   }, [isVideo, trimStart, trimEnd, isScrubbing]);
 
+  // Sync rect changes to the active pan target
+  useEffect(() => {
+    if (mode === 'pan') {
+      if (panEditTarget === 'start') {
+        setPanStart(rect);
+      } else {
+        setPanEnd(rect);
+      }
+    }
+  }, [rect]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       const numDuration = isVideo ? (trimEnd - trimStart) : (parseFloat(duration) || 0);
-      
+
       // Use ref to get latest item properties without triggering effect
       const currentItem = itemRef.current;
 
-      onSave({ 
-        ...currentItem, 
-        rect, 
-        mode, 
+      onSave({
+        ...currentItem,
+        rect,
+        mode,
         duration: numDuration * 1000,
         trimStart,
         trimEnd,
-        customTitle: useDefaultTitle ? undefined : customTitle
+        customTitle: useDefaultTitle ? undefined : customTitle,
+        panStart: mode === 'pan' ? (panEditTarget === 'start' ? rect : panStart) : undefined,
+        panEnd: mode === 'pan' ? (panEditTarget === 'end' ? rect : panEnd) : undefined
       });
     }, 100);
     return () => clearTimeout(timer);
-  }, [rect, mode, duration, trimStart, trimEnd, useDefaultTitle, customTitle, onSave, isVideo]);
+  }, [rect, mode, duration, trimStart, trimEnd, useDefaultTitle, customTitle, onSave, isVideo, panStart, panEnd, panEditTarget]);
 
   const handlePointerDown = (e: React.PointerEvent, type: 'move' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' = 'move') => {
     e.preventDefault();
@@ -320,20 +338,24 @@ function ImageEditor({
 
   const switchToMode = (newMode: KenBurnsMode) => {
     setMode(newMode);
-    
+
     if (newMode === 'pan') {
-      // Reset to maximized frame for Pan mode
-      let w, h;
-      if (frameAspect > imgAspect) {
-        w = 1;
-        h = imgAspect / frameAspect;
+      // Set up default pan start and end rects
+      const maxW = Math.min(1, frameAspect / imgAspect);
+      const w = 0.5 * maxW;
+      const h = w * imgAspect / frameAspect;
+
+      // Only set defaults if not already configured
+      if (!item.panStart || !item.panEnd) {
+        const startRect = { x: 0, y: 0, w: w, h: h };
+        const endRect = { x: 1 - w, y: 1 - h, w: w, h: h };
+        setPanStart(startRect);
+        setPanEnd(endRect);
+        setRect(startRect);
       } else {
-        h = 1;
-        w = frameAspect / imgAspect;
+        setRect(panStart);
       }
-      const x = (1 - w) / 2;
-      const y = (1 - h) / 2;
-      setRect({ x, y, w, h });
+      setPanEditTarget('start');
     } else {
       // Enforce aspect ratio for Zoom modes
       const currentRectAspect = (rect.w / rect.h) * imgAspect;
@@ -393,13 +415,32 @@ function ImageEditor({
                   onClick={() => switchToMode('pan')}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${mode === 'pan' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                 >
-                  <Monitor className="w-4 h-4" /> Kamerafahrt
+                  <Move className="w-4 h-4" /> Kamerafahrt
                 </button>
               </div>
+              {mode === 'pan' && (
+                <div className="mt-3">
+                  <label className="text-sm text-zinc-400 mb-2 block">Kameraposition bearbeiten</label>
+                  <div className="flex gap-2 p-1 bg-zinc-950 rounded-xl border border-zinc-800">
+                    <button
+                      onClick={() => { setPanEditTarget('start'); setRect(panStart); }}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${panEditTarget === 'start' ? 'bg-emerald-600/20 text-emerald-400 shadow-sm border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    >
+                      Startposition
+                    </button>
+                    <button
+                      onClick={() => { setPanEditTarget('end'); setRect(panEnd); }}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${panEditTarget === 'end' ? 'bg-orange-600/20 text-orange-400 shadow-sm border border-orange-500/30' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    >
+                      Endposition
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
-        
+
 
         
         {isVideo && (
@@ -526,44 +567,64 @@ function ImageEditor({
             )}
             
             {!isVideo && (
-              <div 
-                className="absolute border-2 border-indigo-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] cursor-move touch-none group"
-                style={{
-                  left: `${rect.x * 100}%`,
-                  top: `${rect.y * 100}%`,
-                  width: `${rect.w * 100}%`,
-                  height: `${rect.h * 100}%`,
-                }}
-                onPointerDown={handlePointerDown}
-              >
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-0 group-hover:opacity-50 transition-opacity">
-                  <div className="border-r border-b border-white/50"></div>
-                  <div className="border-r border-b border-white/50"></div>
-                  <div className="border-b border-white/50"></div>
-                  <div className="border-r border-b border-white/50"></div>
-                  <div className="border-r border-b border-white/50"></div>
-                  <div className="border-b border-white/50"></div>
-                  <div className="border-r border-white/50"></div>
-                  <div className="border-r border-white/50"></div>
-                  <div></div>
+              <>
+                {/* Ghost rect for the other pan position */}
+                {mode === 'pan' && (
+                  <div
+                    className={`absolute border-2 border-dashed pointer-events-none z-[5] ${panEditTarget === 'start' ? 'border-orange-400/50' : 'border-emerald-400/50'}`}
+                    style={{
+                      left: `${(panEditTarget === 'start' ? panEnd.x : panStart.x) * 100}%`,
+                      top: `${(panEditTarget === 'start' ? panEnd.y : panStart.y) * 100}%`,
+                      width: `${(panEditTarget === 'start' ? panEnd.w : panStart.w) * 100}%`,
+                      height: `${(panEditTarget === 'start' ? panEnd.h : panStart.h) * 100}%`,
+                    }}
+                  >
+                    <span className={`absolute -top-5 left-1 text-[10px] font-medium ${panEditTarget === 'start' ? 'text-orange-400' : 'text-emerald-400'}`}>
+                      {panEditTarget === 'start' ? 'Ende' : 'Start'}
+                    </span>
+                  </div>
+                )}
+                <div
+                  className={`absolute border-2 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] cursor-move touch-none group ${
+                    mode === 'pan'
+                      ? panEditTarget === 'start' ? 'border-emerald-500' : 'border-orange-500'
+                      : 'border-indigo-500'
+                  }`}
+                  style={{
+                    left: `${rect.x * 100}%`,
+                    top: `${rect.y * 100}%`,
+                    width: `${rect.w * 100}%`,
+                    height: `${rect.h * 100}%`,
+                  }}
+                  onPointerDown={handlePointerDown}
+                >
+                  {mode === 'pan' && (
+                    <span className={`absolute -top-5 left-1 text-[10px] font-bold ${panEditTarget === 'start' ? 'text-emerald-400' : 'text-orange-400'}`}>
+                      {panEditTarget === 'start' ? 'Start' : 'Ende'}
+                    </span>
+                  )}
+                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-0 group-hover:opacity-50 transition-opacity">
+                    <div className="border-r border-b border-white/50"></div>
+                    <div className="border-r border-b border-white/50"></div>
+                    <div className="border-b border-white/50"></div>
+                    <div className="border-r border-b border-white/50"></div>
+                    <div className="border-r border-b border-white/50"></div>
+                    <div className="border-b border-white/50"></div>
+                    <div className="border-r border-white/50"></div>
+                    <div className="border-r border-white/50"></div>
+                    <div></div>
+                  </div>
+                  {(() => {
+                    const borderColor = mode === 'pan' ? (panEditTarget === 'start' ? 'border-emerald-500' : 'border-orange-500') : 'border-indigo-500';
+                    return (<>
+                      <div className={`absolute -top-1.5 -left-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'top-left')} />
+                      <div className={`absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'top-right')} />
+                      <div className={`absolute -bottom-1.5 -left-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'bottom-left')} />
+                      <div className={`absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'bottom-right')} />
+                    </>);
+                  })()}
                 </div>
-                <div 
-                  className="absolute -top-1.5 -left-1.5 w-4 h-4 bg-white border-2 border-indigo-500 rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform"
-                  onPointerDown={(e) => handlePointerDown(e, 'top-left')}
-                ></div>
-                <div 
-                  className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border-2 border-indigo-500 rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform"
-                  onPointerDown={(e) => handlePointerDown(e, 'top-right')}
-                ></div>
-                <div 
-                  className="absolute -bottom-1.5 -left-1.5 w-4 h-4 bg-white border-2 border-indigo-500 rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform"
-                  onPointerDown={(e) => handlePointerDown(e, 'bottom-left')}
-                ></div>
-                <div 
-                  className="absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-white border-2 border-indigo-500 rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform"
-                  onPointerDown={(e) => handlePointerDown(e, 'bottom-right')}
-                ></div>
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -755,6 +816,9 @@ export default function App() {
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cancelGenerationRef = useRef<(() => void) | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
 
   // Update all items' rect when project aspect ratio changes
   useEffect(() => {
@@ -805,12 +869,35 @@ export default function App() {
   }, [audioUrl]);
 
   const removeAudio = useCallback(() => {
+    if (audioPreviewRef.current) {
+      audioPreviewRef.current.pause();
+      audioPreviewRef.current = null;
+      setIsAudioPlaying(false);
+    }
     setAudioFile(null);
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
     }
   }, [audioUrl]);
+
+  const toggleAudioPreview = useCallback(() => {
+    if (isAudioPlaying && audioPreviewRef.current) {
+      audioPreviewRef.current.pause();
+      audioPreviewRef.current.currentTime = 0;
+      audioPreviewRef.current = null;
+      setIsAudioPlaying(false);
+    } else if (audioUrl) {
+      const audio = new Audio(audioUrl);
+      audio.onended = () => {
+        setIsAudioPlaying(false);
+        audioPreviewRef.current = null;
+      };
+      audio.play().catch(() => {});
+      audioPreviewRef.current = audio;
+      setIsAudioPlaying(true);
+    }
+  }, [audioUrl, isAudioPlaying]);
 
   const handleFiles = useCallback(async (newFiles: File[]) => {
     const validFiles = newFiles.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
@@ -1046,6 +1133,8 @@ export default function App() {
       };
 
       recorder.onstop = () => {
+        cancelGenerationRef.current = null;
+        if (cancelled) return; // Don't create video if cancelled
         const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
         setVideoUrl(URL.createObjectURL(blob));
         setStatus('done');
@@ -1088,11 +1177,34 @@ export default function App() {
       let startTime: number | null = null;
       let generationStartTime = Date.now();
       let animationFrame: number;
+      let cancelled = false;
+
+      // Store cancel function
+      cancelGenerationRef.current = () => {
+        cancelled = true;
+        cancelAnimationFrame(animationFrame);
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+        if (audioSource) {
+          audioSource.stop();
+          audioSource.disconnect();
+        }
+        if (audioCtx) {
+          audioCtx.close();
+        }
+        setStatus('idle');
+        setProgress(0);
+        setCurrentItemIndex(null);
+        setEstimatedTimeRemaining(null);
+        cancelGenerationRef.current = null;
+      };
 
       const draw = (timestamp: number) => {
         try {
+          if (cancelled) return;
           if (!startTime) startTime = timestamp;
-          
+
           // Throttle to 24fps
           if (timestamp - lastFrameTime < frameDuration) {
             animationFrame = requestAnimationFrame(draw);
@@ -1199,22 +1311,29 @@ export default function App() {
               currentDx = targetDx + (baseDx - targetDx) * easeT;
               currentDy = targetDy + (baseDy - targetDy) * easeT;
             } else {
-              currentScale = targetScale;
-              if (orientation === 'portrait' && mediaWidth / mediaHeight > 1) {
-                const startDx = 0; 
-                const endDx = canvas.width - mediaWidth * targetScale; 
-                currentDx = startDx + (endDx - startDx) * easeT;
-                currentDy = targetDy; 
-              } else if (orientation === 'landscape' && mediaWidth / mediaHeight < 1) {
-                const startDy = 0; 
-                const endDy = canvas.height - mediaHeight * targetScale; 
-                currentDx = targetDx; 
-                currentDy = startDy + (endDy - startDy) * easeT;
-              } else {
-                currentScale = baseScale + (targetScale - baseScale) * easeT;
-                currentDx = baseDx + (targetDx - baseDx) * easeT;
-                currentDy = baseDy + (targetDy - baseDy) * easeT;
-              }
+              // Pan mode: interpolate between panStart and panEnd rects
+              const ps = item.panStart || item.rect;
+              const pe = item.panEnd || item.rect;
+
+              const startFw = ps.w * mediaWidth;
+              const startFh = ps.h * mediaHeight;
+              const startFx = ps.x * mediaWidth;
+              const startFy = ps.y * mediaHeight;
+              const startScale = Math.max(canvas.width / startFw, canvas.height / startFh);
+              const startDx = -startFx * startScale + (canvas.width - startFw * startScale) / 2;
+              const startDy = -startFy * startScale + (canvas.height - startFh * startScale) / 2;
+
+              const endFw = pe.w * mediaWidth;
+              const endFh = pe.h * mediaHeight;
+              const endFx = pe.x * mediaWidth;
+              const endFy = pe.y * mediaHeight;
+              const endScale = Math.max(canvas.width / endFw, canvas.height / endFh);
+              const endDxVal = -endFx * endScale + (canvas.width - endFw * endScale) / 2;
+              const endDyVal = -endFy * endScale + (canvas.height - endFh * endScale) / 2;
+
+              currentScale = startScale + (endScale - startScale) * easeT;
+              currentDx = startDx + (endDxVal - startDx) * easeT;
+              currentDy = startDy + (endDyVal - startDy) * easeT;
             }
 
             let opacity = 1;
@@ -1442,7 +1561,9 @@ export default function App() {
           dominantColor: item.dominantColor,
           trimStart: item.trimStart,
           trimEnd: item.trimEnd,
-          originalDuration: item.originalDuration
+          originalDuration: item.originalDuration,
+          panStart: item.panStart,
+          panEnd: item.panEnd
         }))
       };
 
@@ -1737,7 +1858,16 @@ export default function App() {
                   <input type="file" accept="audio/*" className="hidden" onChange={handleAudioUpload} />
                 </label>
                 {audioFile && (
-                  <button 
+                  <button
+                    onClick={toggleAudioPreview}
+                    className={`p-3 bg-zinc-950 border rounded-xl transition-colors ${isAudioPlaying ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10' : 'border-zinc-800 hover:border-indigo-500/50 hover:text-indigo-400 text-zinc-500'}`}
+                    title={isAudioPlaying ? 'Stoppen' : 'Anhören'}
+                  >
+                    {isAudioPlaying ? <Pause className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                  </button>
+                )}
+                {audioFile && (
+                  <button
                     onClick={removeAudio}
                     className="p-3 bg-zinc-950 border border-zinc-800 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-500 rounded-xl transition-colors text-zinc-500"
                   >
@@ -1973,27 +2103,38 @@ export default function App() {
                     : `${items.length} Medien bereit`}
               </p>
             </div>
-            <button
-              onClick={generateVideo}
-              disabled={items.length === 0 || status === 'generating'}
-              className={`px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all text-sm ${
-                status === 'generating'
-                  ? 'bg-zinc-800 text-zinc-400 cursor-wait'
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 active:scale-[0.97] disabled:bg-zinc-800 disabled:text-zinc-600 disabled:shadow-none'
-              }`}
-            >
-              {status === 'generating' ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="font-mono tabular-nums">{Math.round(progress)}%</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4" />
-                  Video erstellen
-                </>
+            <div className="flex items-center gap-2">
+              {status === 'generating' && (
+                <button
+                  onClick={() => cancelGenerationRef.current?.()}
+                  className="px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all text-sm bg-red-600/15 text-red-400 hover:bg-red-600/25 border border-red-500/30 active:scale-[0.97]"
+                >
+                  <StopCircle className="w-4 h-4" />
+                  Abbrechen
+                </button>
               )}
-            </button>
+              <button
+                onClick={generateVideo}
+                disabled={items.length === 0 || status === 'generating'}
+                className={`px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all text-sm ${
+                  status === 'generating'
+                    ? 'bg-zinc-800 text-zinc-400 cursor-wait'
+                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 active:scale-[0.97] disabled:bg-zinc-800 disabled:text-zinc-600 disabled:shadow-none'
+                }`}
+              >
+                {status === 'generating' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="font-mono tabular-nums">{Math.round(progress)}%</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />
+                    Video erstellen
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Generation progress bar */}
@@ -2435,7 +2576,16 @@ export default function App() {
                     <input type="file" accept="audio/*" className="hidden" onChange={handleAudioUpload} />
                   </label>
                   {audioFile && (
-                    <button 
+                    <button
+                      onClick={toggleAudioPreview}
+                      className={`p-3 bg-zinc-950 border rounded-xl transition-colors ${isAudioPlaying ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10' : 'border-zinc-800 hover:border-indigo-500/50 hover:text-indigo-400 text-zinc-500'}`}
+                      title={isAudioPlaying ? 'Stoppen' : 'Anhören'}
+                    >
+                      {isAudioPlaying ? <Pause className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                    </button>
+                  )}
+                  {audioFile && (
+                    <button
                       onClick={removeAudio}
                       className="p-3 bg-zinc-950 border border-zinc-800 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-500 rounded-xl transition-colors text-zinc-500"
                     >
