@@ -1122,19 +1122,29 @@ export default function App() {
 
       // Download and import directly - no second selection needed
       const files: File[] = [];
+      const debugLines: string[] = [];
+      debugLines.push(`Picker: ${photos.length} items selected`);
       for (const photo of photos) {
+        debugLines.push(`→ ${photo.filename} | mime: ${photo.mimeType} | url: ${photo.baseUrl?.substring(0, 60)}...`);
         try {
           const file = await googlePhotos.downloadPhoto(photo);
+          debugLines.push(`  ✓ OK size=${file.size} type=${file.type}`);
           files.push(file);
         } catch (err) {
-          console.warn('[GooglePhotos] Download failed for', photo.filename, err);
+          const msg = err instanceof Error ? err.message : String(err);
+          debugLines.push(`  ✗ FAIL: ${msg}`);
         }
       }
+      debugLines.push(`Result: ${files.length}/${photos.length} downloaded`);
 
       if (files.length > 0) {
         await handleFiles(files);
       } else {
-        setGooglePhotosError('Keine Fotos konnten heruntergeladen werden');
+        setGooglePhotosError('Keine Fotos konnten heruntergeladen werden\n\nDebug:\n' + debugLines.join('\n'));
+      }
+      // Temporary: always show debug info when some items failed
+      if (files.length < photos.length && files.length > 0) {
+        setGooglePhotosError('Einige Dateien fehlgeschlagen\n\nDebug:\n' + debugLines.join('\n'));
       }
     } catch (err) {
       setGooglePhotosError((err as Error).message);
@@ -2876,9 +2886,9 @@ export default function App() {
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400 flex items-center gap-3"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400 flex items-start gap-3 max-w-[90vw] max-h-[50vh] overflow-auto"
           >
-            {googlePhotosError}
+            <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{googlePhotosError}</span>
             <button onClick={() => setGooglePhotosError(null)} className="text-red-300 hover:text-white">
               <X className="w-4 h-4" />
             </button>
