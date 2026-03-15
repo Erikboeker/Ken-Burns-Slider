@@ -1180,6 +1180,7 @@ export default function App() {
       const photos = result.photos;
 
       if (photos.length === 0) {
+        setGooglePhotosError('Keine Fotos gefunden. Videos werden von Google Fotos leider nicht unterstützt – bitte nur Bilder auswählen.');
         setGooglePhotosLoading(false);
         return;
       }
@@ -1249,7 +1250,7 @@ export default function App() {
       if (!captureStreamFn) {
         throw new Error("Video-Aufnahme wird von diesem Browser nicht unterstützt.");
       }
-      const canvasStream = captureStreamFn.call(canvas, 24);
+      const canvasStream = captureStreamFn.call(canvas, 30);
       
       let finalStream = canvasStream;
       let audioCtx: AudioContext | null = null;
@@ -1395,7 +1396,7 @@ export default function App() {
       };
 
       const TRANSITION = 1000;
-      const FPS = 24;
+      const FPS = 30;
       const frameDuration = 1000 / FPS;
       let lastFrameTime = 0;
       const seekedItems = new Set<string>();
@@ -1546,13 +1547,11 @@ export default function App() {
           }
 
           function renderItem(item: PlaylistItem, i: number, localT: number, timing: any, t: number) {
-            // Determine easing based on mode
-            let easeT;
-            if (item.mode === 'pan') {
-              easeT = localT;
-            } else {
-              easeT = 1 - Math.pow(1 - localT, 5);
-            }
+            // Smooth easing for all modes
+            // Ease-in-out cubic: smooth start and end, avoids jerky feel
+            const easeT = localT < 0.5
+              ? 4 * localT * localT * localT
+              : 1 - Math.pow(-2 * localT + 2, 3) / 2;
 
             const element = item.element;
             const isVideo = item.type === 'video';
@@ -1645,7 +1644,8 @@ export default function App() {
               opacity = (t - timing.start) / TRANSITION;
             }
             ctx.globalAlpha = opacity;
-            ctx.imageSmoothingEnabled = false; // Maximum performance
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             
             ctx.drawImage(element, currentDx, currentDy, mediaWidth * currentScale, mediaHeight * currentScale);
           }
@@ -2320,7 +2320,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-indigo-500/30">
+    <div className="min-h-dvh bg-zinc-950 text-zinc-100 font-sans selection:bg-indigo-500/30">
       <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-xl sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -2412,10 +2412,10 @@ export default function App() {
         </AnimatePresence>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-8">
 
         {/* Left Column: Upload & List */}
-        <div className="lg:col-span-4 space-y-5">
+        <div className="lg:col-span-4 space-y-3 sm:space-y-5">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <h2 className="text-base font-semibold flex items-center gap-2">
@@ -2438,7 +2438,7 @@ export default function App() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-zinc-800 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all duration-300 rounded-2xl p-6 sm:p-8 text-center cursor-pointer group"
+            className="border-2 border-dashed border-zinc-800 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all duration-300 rounded-2xl p-4 sm:p-8 text-center cursor-pointer group"
           >
             <input
               type="file"
@@ -2448,11 +2448,11 @@ export default function App() {
               ref={fileInputRef}
               onChange={(e) => handleFiles(Array.from(e.target.files || []))}
             />
-            <div className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 group-hover:border-indigo-500/30 group-hover:bg-indigo-500/10 transition-all duration-300">
-              <Upload className="w-5 h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+            <div className="w-9 h-9 sm:w-11 sm:h-11 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center mx-auto mb-2 sm:mb-3 group-hover:scale-110 group-hover:border-indigo-500/30 group-hover:bg-indigo-500/10 transition-all duration-300">
+              <Upload className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
             </div>
             <p className="font-medium text-sm mb-0.5">Medien hinzufügen</p>
-            <p className="text-[11px] text-zinc-600">Klicken oder per Drag & Drop</p>
+            <p className="text-[11px] text-zinc-600 hidden sm:block">Klicken oder per Drag & Drop</p>
           </div>
 
           <button
@@ -2509,7 +2509,7 @@ export default function App() {
         </div>
 
         {/* Right Column: Preview & Actions - Sticky */}
-        <div className="lg:col-span-8 space-y-5 lg:sticky lg:top-20 lg:h-fit">
+        <div className="lg:col-span-8 space-y-3 sm:space-y-5 lg:sticky lg:top-20 lg:h-fit">
           <div className="flex items-end justify-between gap-4">
             <div className="space-y-0.5">
               <h2 className="text-base font-semibold flex items-center gap-2">
@@ -2589,10 +2589,10 @@ export default function App() {
 
           <div className={`bg-zinc-900/50 border border-zinc-800/60 rounded-2xl overflow-hidden relative flex items-center justify-center ${
             orientation === 'landscape' || orientation === 'classic'
-              ? 'aspect-video'
+              ? 'aspect-video max-h-[35dvh] sm:max-h-none'
               : orientation === 'square'
-                ? 'aspect-square max-h-[60vh] mx-auto'
-                : 'aspect-[9/16] max-h-[65vh] mx-auto'
+                ? 'aspect-square max-h-[40dvh] sm:max-h-[60dvh] mx-auto'
+                : 'aspect-[9/16] max-h-[50dvh] sm:max-h-[65dvh] mx-auto'
           }`}>
             {items.length === 0 ? (
               <div className="text-center text-zinc-600 flex flex-col items-center p-8">
@@ -2662,7 +2662,7 @@ export default function App() {
                     src={videoUrl}
                     controls
                     className="w-full"
-                    style={{ maxHeight: '50vh' }}
+                    style={{ maxHeight: '40dvh' }}
                   />
                 </div>
 
