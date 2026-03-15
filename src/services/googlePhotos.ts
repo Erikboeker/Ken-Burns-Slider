@@ -117,6 +117,38 @@ export interface GooglePhoto {
 }
 
 // Create a picker session and open Google's photo picker
+// Persists session ID so polling can resume if page reloads (tablet tab-kill)
+
+export function hasPendingPickerSession(): boolean {
+  return !!sessionStorage.getItem('gphoto_picker_session');
+}
+
+export async function resumePendingSession(): Promise<GooglePhoto[]> {
+  const sessionId = sessionStorage.getItem('gphoto_picker_session');
+  if (!sessionId) return [];
+
+  // Ensure we have a token
+  if (!accessToken) {
+    accessToken = sessionStorage.getItem('gphoto_token');
+    if (!accessToken) return [];
+  }
+
+  console.log('[GooglePhotos] Resuming pending session:', sessionId);
+
+  try {
+    const sessionData = await checkSession(sessionId);
+    if (sessionData.mediaItemsSet) {
+      sessionStorage.removeItem('gphoto_picker_session');
+      return await getPickerMediaItems(sessionId);
+    }
+    // Not ready yet - poll for it
+    return await pollPickerSession(sessionId, null);
+  } catch (err) {
+    console.warn('[GooglePhotos] Resume failed:', err);
+    sessionStorage.removeItem('gphoto_picker_session');
+    return [];
+  }
+}
 export async function openPhotoPicker(): Promise<GooglePhoto[]> {
   if (!accessToken) throw new Error('Nicht angemeldet');
 
@@ -163,7 +195,10 @@ export async function openPhotoPicker(): Promise<GooglePhoto[]> {
   const pickerUri: string = session.pickerUri;
   console.log('[GooglePhotos] Created session:', sessionId, 'pickerUri:', pickerUri);
 
-  // Step 2: Open picker in a popup window (unique name per session to avoid reuse)
+  // Persist session ID so polling can resume after page reload (tablet tab-kill)
+  sessionStorage.setItem('gphoto_picker_session', sessionId);
+
+  // Step 2: Open picker in a popup/tab
   const popupName = `google-photos-picker-${Date.now()}`;
   const popup = window.open(pickerUri, popupName, 'width=800,height=600');
 
@@ -212,6 +247,7 @@ async function pollPickerSession(
         }
 
         if (sessionData.mediaItemsSet) {
+          sessionStorage.removeItem('gphoto_picker_session');
           try { if (popup && !popup.closed) popup.close(); } catch {}
           return await getPickerMediaItems(sessionId);
         }
@@ -227,6 +263,7 @@ async function pollPickerSession(
               popupClosedSince = Date.now();
             } else if (Date.now() - popupClosedSince > 30000) {
               console.log('[GooglePhotos] Popup closed for 30s without mediaItemsSet, treating as cancelled');
+              sessionStorage.removeItem('gphoto_picker_session');
               return [];
             }
           } else {
@@ -241,6 +278,7 @@ async function pollPickerSession(
     document.removeEventListener('visibilitychange', onVisibilityChange);
   }
 
+  sessionStorage.removeItem('gphoto_picker_session');
   try { if (popup && !popup.closed) popup.close(); } catch {}
   throw new Error('Zeitüberschreitung beim Warten auf Fotoauswahl');
 }

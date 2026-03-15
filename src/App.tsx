@@ -1124,6 +1124,41 @@ export default function App() {
     handleFiles(droppedFiles);
   }, [handleFiles]);
 
+  // Resume pending Google Photos picker session after page reload (tablet tab-kill)
+  useEffect(() => {
+    if (!googlePhotos.hasPendingPickerSession()) return;
+    const resume = async () => {
+      setGooglePhotosLoading(true);
+      setGooglePhotosStatus('Wähle Fotos & Videos in Google Photos aus...');
+      try {
+        await googlePhotos.loadGsi();
+        const photos = await googlePhotos.resumePendingSession();
+        if (photos.length === 0) {
+          setGooglePhotosLoading(false);
+          return;
+        }
+        const files: File[] = [];
+        for (let i = 0; i < photos.length; i++) {
+          setGooglePhotosStatus(`Importiere ${i + 1} von ${photos.length}...`);
+          try {
+            const file = await googlePhotos.downloadPhoto(photos[i]);
+            files.push(file);
+          } catch (err) {
+            console.warn('Download failed:', photos[i].filename, err);
+          }
+        }
+        if (files.length > 0) {
+          await handleFiles(files);
+        }
+      } catch (err) {
+        console.warn('Resume picker failed:', err);
+      } finally {
+        setGooglePhotosLoading(false);
+      }
+    };
+    resume();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Google Photos functions
   const openGooglePhotos = async () => {
     setGooglePhotosError(null);
