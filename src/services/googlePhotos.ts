@@ -387,33 +387,43 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
 
   // For videos: use Edge streaming proxy to bypass CORS (supports up to 300s)
   if (isVideo) {
-    const videoUrl = `${photo.baseUrl}=dv`;
-    console.log('[GooglePhotos] Downloading video via streaming proxy:', photo.filename);
+    // Strip existing params (baseUrl may end with =s0 or similar)
+    const cleanBase = photo.baseUrl.replace(/=[^/]*$/, '');
+    // Try multiple suffixes - =dv is standard, =m18/=m37 are Google internal video formats
+    const videoSuffixes = ['=dv', '=m18', '=m37'];
 
-    try {
-      const proxyRes = await fetch('/api/proxy-video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: videoUrl, token: accessToken }),
-      });
+    for (const suffix of videoSuffixes) {
+      const videoUrl = `${cleanBase}${suffix}`;
+      console.log('[GooglePhotos] Trying video download:', suffix, photo.filename);
 
-      if (proxyRes.ok) {
-        const blob = await proxyRes.blob();
-        console.log('[GooglePhotos] Video downloaded:', blob.size, 'bytes, type:', blob.type);
+      try {
+        const proxyRes = await fetch('/api/proxy-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: videoUrl, token: accessToken }),
+        });
 
-        if (blob.size > 10 * 1024) { // > 10KB = real video (not a thumbnail)
-          const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
-          return new File([blob], photo.filename || 'video.mp4', { type: actualType });
+        if (proxyRes.ok) {
+          const contentType = proxyRes.headers.get('content-type') || '';
+          const blob = await proxyRes.blob();
+          console.log('[GooglePhotos] Response for', suffix, ':', blob.size, 'bytes, type:', contentType);
+
+          // Accept if it's video content-type OR large enough to be a real video (>100KB)
+          if (contentType.startsWith('video/') || blob.size > 100 * 1024) {
+            const actualType = contentType.startsWith('video/') ? contentType : guessMimeType(photo.filename);
+            return new File([blob], photo.filename || 'video.mp4', { type: actualType });
+          }
+          console.warn('[GooglePhotos]', suffix, 'returned non-video:', contentType, blob.size, 'bytes');
+        } else {
+          console.warn('[GooglePhotos]', suffix, 'failed:', proxyRes.status);
         }
-        console.warn('[GooglePhotos] Video too small, likely thumbnail:', blob.size);
-      } else {
-        console.warn('[GooglePhotos] Proxy error:', proxyRes.status);
+      } catch (err) {
+        console.warn('[GooglePhotos]', suffix, 'error:', err);
       }
-    } catch (err) {
-      console.warn('[GooglePhotos] Video proxy download failed:', err);
     }
 
     // Fall through to image fallback below
+    console.warn('[GooglePhotos] All video variants failed, falling back to thumbnail');
   }
 
   // For images (or video fallback): use Picker API baseUrl
