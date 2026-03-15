@@ -15,57 +15,65 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Invalid URL domain' });
   }
 
-  // Debug mode: try multiple URL variants and return info about each
+  // Debug/probe mode: try multiple URL variants with only first 1KB to check content-type
   if (debug) {
     const baseUrl = url.replace(/=[^/]*$/, ''); // strip any existing params
     const variants = [
-      { label: '=dv (with auth)', url: `${baseUrl}=dv`, auth: true },
-      { label: '=dv (no auth)', url: `${baseUrl}=dv`, auth: false },
-      { label: '=m18 (with auth)', url: `${baseUrl}=m18`, auth: true },
-      { label: '=m37 (with auth)', url: `${baseUrl}=m37`, auth: true },
-      { label: '=d (with auth)', url: `${baseUrl}=d`, auth: true },
-      { label: 'raw (with auth)', url: baseUrl, auth: true },
-      { label: 'raw (no auth)', url: baseUrl, auth: false },
+      { label: '=dv', url: `${baseUrl}=dv`, auth: true },
+      { label: '=dv-noauth', url: `${baseUrl}=dv`, auth: false },
+      { label: '=m18', url: `${baseUrl}=m18`, auth: true },
+      { label: '=m37', url: `${baseUrl}=m37`, auth: true },
     ];
 
-    const results = [];
-    for (const v of variants) {
+    // Run all probes in parallel with Range header to only fetch first 1KB
+    const results = await Promise.all(variants.map(async (v) => {
       try {
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string> = { Range: 'bytes=0-1023' };
         if (v.auth) headers['Authorization'] = `Bearer ${token}`;
-        const r = await fetch(v.url, { headers, redirect: 'follow' });
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+
+        const r = await fetch(v.url, {
+          headers,
+          redirect: 'follow',
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
         const contentType = r.headers.get('content-type') || '?';
         const contentLength = r.headers.get('content-length') || '?';
-        // Read just first few bytes to check
+        // Content-Range tells us total size for 206 responses
+        const contentRange = r.headers.get('content-range') || '';
+        const totalSize = contentRange.match(/\/(\d+)/)?.[1] || contentLength;
+
+        // Read the small probe chunk
         const buf = await r.arrayBuffer();
-        results.push({
+
+        return {
           label: v.label,
           status: r.status,
           contentType,
-          contentLength,
-          actualSize: buf.byteLength,
-          isVideo: contentType.startsWith('video/') || buf.byteLength > 500000,
-          finalUrl: r.url?.substring(0, 100),
-        });
+          totalSize,
+          probeSize: buf.byteLength,
+          isVideo: contentType.startsWith('video/') || parseInt(String(totalSize)) > 500000,
+          url: v.url,
+          auth: v.auth,
+        };
       } catch (err: any) {
-        results.push({ label: v.label, error: err.message });
+        return { label: v.label, error: err.message, isVideo: false, url: v.url, auth: v.auth };
       }
-    }
+    }));
+
     return res.status(200).json({ results, baseUrl });
   }
 
-  // Normal mode: fetch and return
+  // Normal download mode
   try {
-    // Try with auth first
-    let response = await fetch(url, {
+    const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
       redirect: 'follow',
     });
-
-    // If auth fails, try without (Picker URLs can be self-authenticated)
-    if (!response.ok) {
-      response = await fetch(url, { redirect: 'follow' });
-    }
 
     if (!response.ok) {
       return res.status(response.status).json({
