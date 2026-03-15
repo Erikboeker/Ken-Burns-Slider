@@ -385,53 +385,32 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
   console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo, 'id:', photo.id);
 
-  // For videos: use server-side proxy to bypass CORS restrictions
+  // For videos: use Edge streaming proxy to bypass CORS (supports up to 300s)
   if (isVideo) {
+    const videoUrl = `${photo.baseUrl}=dv`;
+    console.log('[GooglePhotos] Downloading video via streaming proxy:', photo.filename);
+
     try {
-      // Fast probe: all 4 variants tested in parallel with only 1KB each (Range header)
-      console.log('[GooglePhotos] Fast-probing video URLs for:', photo.filename);
-      const probeRes = await fetch('/api/proxy-video', {
+      const proxyRes = await fetch('/api/proxy-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: photo.baseUrl, token: accessToken, debug: true }),
+        body: JSON.stringify({ url: videoUrl, token: accessToken }),
       });
 
-      if (probeRes.ok) {
-        const probeData = await probeRes.json();
-        console.log('[GooglePhotos] Probe results:', JSON.stringify(probeData.results));
+      if (proxyRes.ok) {
+        const blob = await proxyRes.blob();
+        console.log('[GooglePhotos] Video downloaded:', blob.size, 'bytes, type:', blob.type);
 
-        // Find variant that returns video content-type or large file
-        const winner = probeData.results?.find(
-          (r: any) => r.isVideo && (r.status === 200 || r.status === 206) && !r.error
-        );
-
-        if (winner) {
-          console.log('[GooglePhotos] Downloading video via:', winner.label, 'totalSize:', winner.totalSize);
-
-          // Full download using the winning URL
-          const downloadRes = await fetch('/api/proxy-video', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: winner.url, token: accessToken }),
-          });
-
-          if (downloadRes.ok) {
-            const blob = await downloadRes.blob();
-            console.log('[GooglePhotos] Video downloaded:', blob.size, blob.type);
-            if (blob.size > 50 * 1024) {
-              const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
-              return new File([blob], photo.filename || 'video.mp4', { type: actualType });
-            }
-          }
-        } else {
-          const summary = probeData.results?.map(
-            (r: any) => `${r.label}: ${r.error || `${r.status} ${r.contentType} size=${r.totalSize}`}`
-          ).join('\n');
-          console.warn('[GooglePhotos] No video variant worked:\n' + summary);
+        if (blob.size > 10 * 1024) { // > 10KB = real video (not a thumbnail)
+          const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
+          return new File([blob], photo.filename || 'video.mp4', { type: actualType });
         }
+        console.warn('[GooglePhotos] Video too small, likely thumbnail:', blob.size);
+      } else {
+        console.warn('[GooglePhotos] Proxy error:', proxyRes.status);
       }
     } catch (err) {
-      console.warn('[GooglePhotos] Video probe failed:', err);
+      console.warn('[GooglePhotos] Video proxy download failed:', err);
     }
 
     // Fall through to image fallback below
