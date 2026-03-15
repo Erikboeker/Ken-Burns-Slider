@@ -385,35 +385,59 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
   const isVideo = photo.mimeType.startsWith('video/') || isVideoFilename(photo.filename);
   console.log('[GooglePhotos] Downloading:', photo.filename, 'mimeType:', photo.mimeType, 'isVideo:', isVideo, 'id:', photo.id);
 
-  // For videos: use server-side proxy to bypass CORS restrictions on =dv downloads
+  // For videos: use server-side proxy to bypass CORS restrictions
   if (isVideo) {
+    // Step 1: Debug probe to find which URL variant returns real video
     try {
-      const videoUrl = `${photo.baseUrl}=dv`;
-      console.log('[GooglePhotos] Downloading video via proxy:', photo.filename);
-
-      const proxyRes = await fetch('/api/proxy-video', {
+      console.log('[GooglePhotos] Probing video URLs via proxy for:', photo.filename);
+      const debugRes = await fetch('/api/proxy-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: videoUrl, token: accessToken }),
+        body: JSON.stringify({ url: photo.baseUrl, token: accessToken, debug: true }),
       });
 
-      console.log('[GooglePhotos] Proxy response:', proxyRes.status, 'type:', proxyRes.headers.get('content-type'));
+      if (debugRes.ok) {
+        const debugData = await debugRes.json();
+        console.log('[GooglePhotos] Video probe results:', JSON.stringify(debugData.results));
 
-      if (proxyRes.ok) {
-        const blob = await proxyRes.blob();
-        console.log('[GooglePhotos] Proxy video blob:', blob.size, blob.type);
+        // Find the best variant that returns actual video
+        const videoResult = debugData.results?.find(
+          (r: any) => r.isVideo && r.status === 200 && r.actualSize > 100000
+        );
 
-        if (blob.size > 100 * 1024) { // > 100KB = real video
-          const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
-          return new File([blob], photo.filename || 'video.mp4', { type: actualType });
+        if (videoResult) {
+          console.log('[GooglePhotos] Best video variant:', videoResult.label, 'size:', videoResult.actualSize);
+          // Now download for real using the winning variant's URL pattern
+          const winningParam = videoResult.label.split(' ')[0]; // e.g. "=dv"
+          const baseUrlClean = photo.baseUrl.replace(/=[^/]*$/, '');
+          const downloadUrl = `${baseUrlClean}${winningParam}`;
+          const useAuth = videoResult.label.includes('with auth');
+
+          const proxyRes = await fetch('/api/proxy-video', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: downloadUrl, token: useAuth ? accessToken : '' }),
+          });
+
+          if (proxyRes.ok) {
+            const blob = await proxyRes.blob();
+            console.log('[GooglePhotos] Video downloaded:', blob.size, blob.type);
+            if (blob.size > 100 * 1024) {
+              const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
+              return new File([blob], photo.filename || 'video.mp4', { type: actualType });
+            }
+          }
+        } else {
+          // Show debug info to help diagnose
+          const summary = debugData.results?.map(
+            (r: any) => `${r.label}: ${r.error || `${r.status} ${r.contentType} ${r.actualSize}B`}`
+          ).join('\n');
+          console.warn('[GooglePhotos] No video variant found:\n' + summary);
+          alert(`Video-Download Debug für ${photo.filename}:\n\n${summary}`);
         }
-        console.warn('[GooglePhotos] Proxy returned small blob, probably thumbnail. size:', blob.size);
-      } else {
-        const errText = await proxyRes.text();
-        console.warn('[GooglePhotos] Proxy error:', proxyRes.status, errText);
       }
     } catch (err) {
-      console.warn('[GooglePhotos] Proxy video download failed:', err);
+      console.warn('[GooglePhotos] Proxy video probe failed:', err);
     }
 
     // Fall through to image fallback below
