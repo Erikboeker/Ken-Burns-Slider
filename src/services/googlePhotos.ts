@@ -387,57 +387,51 @@ export async function downloadPhoto(photo: GooglePhoto): Promise<File> {
 
   // For videos: use server-side proxy to bypass CORS restrictions
   if (isVideo) {
-    // Step 1: Debug probe to find which URL variant returns real video
     try {
-      console.log('[GooglePhotos] Probing video URLs via proxy for:', photo.filename);
-      const debugRes = await fetch('/api/proxy-video', {
+      // Fast probe: all 4 variants tested in parallel with only 1KB each (Range header)
+      console.log('[GooglePhotos] Fast-probing video URLs for:', photo.filename);
+      const probeRes = await fetch('/api/proxy-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: photo.baseUrl, token: accessToken, debug: true }),
       });
 
-      if (debugRes.ok) {
-        const debugData = await debugRes.json();
-        console.log('[GooglePhotos] Video probe results:', JSON.stringify(debugData.results));
+      if (probeRes.ok) {
+        const probeData = await probeRes.json();
+        console.log('[GooglePhotos] Probe results:', JSON.stringify(probeData.results));
 
-        // Find the best variant that returns actual video
-        const videoResult = debugData.results?.find(
-          (r: any) => r.isVideo && r.status === 200 && r.actualSize > 100000
+        // Find variant that returns video content-type or large file
+        const winner = probeData.results?.find(
+          (r: any) => r.isVideo && (r.status === 200 || r.status === 206) && !r.error
         );
 
-        if (videoResult) {
-          console.log('[GooglePhotos] Best video variant:', videoResult.label, 'size:', videoResult.actualSize);
-          // Now download for real using the winning variant's URL pattern
-          const winningParam = videoResult.label.split(' ')[0]; // e.g. "=dv"
-          const baseUrlClean = photo.baseUrl.replace(/=[^/]*$/, '');
-          const downloadUrl = `${baseUrlClean}${winningParam}`;
-          const useAuth = videoResult.label.includes('with auth');
+        if (winner) {
+          console.log('[GooglePhotos] Downloading video via:', winner.label, 'totalSize:', winner.totalSize);
 
-          const proxyRes = await fetch('/api/proxy-video', {
+          // Full download using the winning URL
+          const downloadRes = await fetch('/api/proxy-video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: downloadUrl, token: useAuth ? accessToken : '' }),
+            body: JSON.stringify({ url: winner.url, token: accessToken }),
           });
 
-          if (proxyRes.ok) {
-            const blob = await proxyRes.blob();
+          if (downloadRes.ok) {
+            const blob = await downloadRes.blob();
             console.log('[GooglePhotos] Video downloaded:', blob.size, blob.type);
-            if (blob.size > 100 * 1024) {
+            if (blob.size > 50 * 1024) {
               const actualType = blob.type?.startsWith('video/') ? blob.type : guessMimeType(photo.filename);
               return new File([blob], photo.filename || 'video.mp4', { type: actualType });
             }
           }
         } else {
-          // Show debug info to help diagnose
-          const summary = debugData.results?.map(
-            (r: any) => `${r.label}: ${r.error || `${r.status} ${r.contentType} ${r.actualSize}B`}`
+          const summary = probeData.results?.map(
+            (r: any) => `${r.label}: ${r.error || `${r.status} ${r.contentType} size=${r.totalSize}`}`
           ).join('\n');
-          console.warn('[GooglePhotos] No video variant found:\n' + summary);
-          alert(`Video-Download Debug für ${photo.filename}:\n\n${summary}`);
+          console.warn('[GooglePhotos] No video variant worked:\n' + summary);
         }
       }
     } catch (err) {
-      console.warn('[GooglePhotos] Proxy video probe failed:', err);
+      console.warn('[GooglePhotos] Video probe failed:', err);
     }
 
     // Fall through to image fallback below
