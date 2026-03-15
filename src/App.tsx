@@ -1250,7 +1250,7 @@ export default function App() {
       if (!captureStreamFn) {
         throw new Error("Video-Aufnahme wird von diesem Browser nicht unterstützt.");
       }
-      const canvasStream = captureStreamFn.call(canvas, 30);
+      const canvasStream = captureStreamFn.call(canvas, CAPTURE_FPS);
       
       let finalStream = canvasStream;
       let audioCtx: AudioContext | null = null;
@@ -1396,9 +1396,7 @@ export default function App() {
       };
 
       const TRANSITION = 1000;
-      const FPS = 30;
-      const frameDuration = 1000 / FPS;
-      let lastFrameTime = 0;
+      const CAPTURE_FPS = 30;
       const seekedItems = new Set<string>();
       
       let totalDuration = 0;
@@ -1497,13 +1495,6 @@ export default function App() {
         try {
           if (cancelled) return;
           if (!startTime) startTime = timestamp;
-
-          // Throttle to 24fps
-          if (timestamp - lastFrameTime < frameDuration) {
-            animationFrame = requestAnimationFrame(draw);
-            return;
-          }
-          lastFrameTime = timestamp;
 
           const t = timestamp - startTime;
 
