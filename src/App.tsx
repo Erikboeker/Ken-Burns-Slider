@@ -1250,7 +1250,7 @@ export default function App() {
       if (!captureStreamFn) {
         throw new Error("Video-Aufnahme wird von diesem Browser nicht unterstützt.");
       }
-      const canvasStream = captureStreamFn.call(canvas, 24);
+      const canvasStream = captureStreamFn.call(canvas, 30);
       
       let finalStream = canvasStream;
       let audioCtx: AudioContext | null = null;
@@ -1396,7 +1396,7 @@ export default function App() {
       };
 
       const TRANSITION = 1000;
-      const FPS = 24;
+      const FPS = 30;
       const frameDuration = 1000 / FPS;
       let lastFrameTime = 0;
       const seekedItems = new Set<string>();
@@ -1547,13 +1547,11 @@ export default function App() {
           }
 
           function renderItem(item: PlaylistItem, i: number, localT: number, timing: any, t: number) {
-            // Determine easing based on mode
-            let easeT;
-            if (item.mode === 'pan') {
-              easeT = localT;
-            } else {
-              easeT = 1 - Math.pow(1 - localT, 5);
-            }
+            // Smooth easing for all modes
+            // Ease-in-out cubic: smooth start and end, avoids jerky feel
+            const easeT = localT < 0.5
+              ? 4 * localT * localT * localT
+              : 1 - Math.pow(-2 * localT + 2, 3) / 2;
 
             const element = item.element;
             const isVideo = item.type === 'video';
@@ -1646,7 +1644,8 @@ export default function App() {
               opacity = (t - timing.start) / TRANSITION;
             }
             ctx.globalAlpha = opacity;
-            ctx.imageSmoothingEnabled = false; // Maximum performance
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             
             ctx.drawImage(element, currentDx, currentDy, mediaWidth * currentScale, mediaHeight * currentScale);
           }
