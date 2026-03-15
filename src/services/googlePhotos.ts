@@ -177,47 +177,68 @@ async function pollPickerSession(
   sessionId: string,
   popup: Window | null
 ): Promise<GooglePhoto[]> {
-  const maxAttempts = 600; // 10 minutes max
+  const maxDurationMs = 10 * 60 * 1000; // 10 minutes max
+  const startTime = Date.now();
   // On mobile/Android, do NOT use popup.closed detection - it's unreliable
   // (tab switches look like closes). Just poll until mediaItemsSet or timeout.
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   let popupClosedSince = 0;
+  let pollCount = 0;
 
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-
-    try {
-      const sessionData = await checkSession(sessionId);
-      if (i % 10 === 0) {
-        console.log('[GooglePhotos] Poll #' + i, 'mediaItemsSet:', sessionData.mediaItemsSet);
-      }
-
-      if (sessionData.mediaItemsSet) {
-        try { if (popup && !popup.closed) popup.close(); } catch {}
-        return await getPickerMediaItems(sessionId);
-      }
-    } catch (err) {
-      console.warn('[GooglePhotos] Poll error, retrying:', err);
+  // Use visibility change to immediately poll when user returns to the tab
+  let visibilityChanged = false;
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      visibilityChanged = true;
+      console.log('[GooglePhotos] Tab became visible, will poll immediately');
     }
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
-    // Only use popup.closed detection on desktop
-    if (!isMobile) {
+  try {
+    while (Date.now() - startTime < maxDurationMs) {
+      // Wait 1s normally, but if tab just became visible, poll immediately
+      if (!visibilityChanged) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      visibilityChanged = false;
+      pollCount++;
+
       try {
-        if (popup && popup.closed) {
-          if (!popupClosedSince) {
-            popupClosedSince = Date.now();
-          } else if (Date.now() - popupClosedSince > 30000) {
-            console.log('[GooglePhotos] Popup closed for 30s without mediaItemsSet, treating as cancelled');
-            return [];
-          }
-        } else {
-          popupClosedSince = 0;
+        const sessionData = await checkSession(sessionId);
+        if (pollCount % 10 === 0 || pollCount <= 3) {
+          console.log('[GooglePhotos] Poll #' + pollCount, 'mediaItemsSet:', sessionData.mediaItemsSet);
         }
-      } catch {
-        // Cross-origin - ignore
+
+        if (sessionData.mediaItemsSet) {
+          try { if (popup && !popup.closed) popup.close(); } catch {}
+          return await getPickerMediaItems(sessionId);
+        }
+      } catch (err) {
+        console.warn('[GooglePhotos] Poll error, retrying:', err);
+      }
+
+      // Only use popup.closed detection on desktop
+      if (!isMobile) {
+        try {
+          if (popup && popup.closed) {
+            if (!popupClosedSince) {
+              popupClosedSince = Date.now();
+            } else if (Date.now() - popupClosedSince > 30000) {
+              console.log('[GooglePhotos] Popup closed for 30s without mediaItemsSet, treating as cancelled');
+              return [];
+            }
+          } else {
+            popupClosedSince = 0;
+          }
+        } catch {
+          // Cross-origin - ignore
+        }
       }
     }
+  } finally {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
   }
 
   try { if (popup && !popup.closed) popup.close(); } catch {}

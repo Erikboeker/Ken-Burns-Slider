@@ -866,6 +866,7 @@ export default function App() {
 
   // Google Photos state
   const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
+  const [googlePhotosStatus, setGooglePhotosStatus] = useState('');
   const [googlePhotosError, setGooglePhotosError] = useState<string | null>(null);
   const [googleSignedIn, setGoogleSignedIn] = useState(false);
 
@@ -1129,12 +1130,15 @@ export default function App() {
     setGooglePhotosLoading(true);
 
     try {
+      setGooglePhotosStatus('Verbindung wird hergestellt...');
       await googlePhotos.loadGsi();
 
       if (!googlePhotos.isSignedIn()) {
         await googlePhotos.requestAccess();
         setGoogleSignedIn(true);
       }
+
+      setGooglePhotosStatus('Wähle Fotos & Videos in Google Photos aus...');
 
       // Picker UI handles selection - get picked photos directly
       const result = await googlePhotos.listPhotos();
@@ -1147,12 +1151,13 @@ export default function App() {
 
       // Download and import directly - no second selection needed
       const files: File[] = [];
-      for (const photo of photos) {
+      for (let i = 0; i < photos.length; i++) {
+        setGooglePhotosStatus(`Importiere ${i + 1} von ${photos.length}...`);
         try {
-          const file = await googlePhotos.downloadPhoto(photo);
+          const file = await googlePhotos.downloadPhoto(photos[i]);
           files.push(file);
         } catch (err) {
-          console.warn('Download failed:', photo.filename, err);
+          console.warn('Download failed:', photos[i].filename, err);
         }
       }
 
@@ -1250,20 +1255,32 @@ export default function App() {
           }
 
           // Connect video elements' audio to the mix
+          // Use cloned video elements to avoid permanently hijacking audio output
+          // (createMediaElementSource can only be called once per element)
           if (hasVideos) {
             for (const item of items) {
               if (item.type === 'video') {
-                const video = item.element as HTMLVideoElement;
-                video.muted = false; // Unmute for export
+                const origVideo = item.element as HTMLVideoElement;
+                origVideo.muted = true; // Keep original muted, use clone for audio
+
+                const cloneVideo = document.createElement('video');
+                cloneVideo.src = item.url;
+                cloneVideo.crossOrigin = 'anonymous';
+                cloneVideo.preload = 'auto';
+                cloneVideo.muted = false;
+                cloneVideo.currentTime = item.trimStart || 0;
+
                 try {
-                  const source = audioCtx.createMediaElementSource(video);
+                  const source = audioCtx.createMediaElementSource(cloneVideo);
                   const videoGain = audioCtx.createGain();
                   videoGain.gain.value = 1.0;
                   source.connect(videoGain);
                   videoGain.connect(dest);
                   videoAudioSources.push(source);
+
+                  // Sync clone playback with original during render
+                  (item as any)._audioClone = cloneVideo;
                 } catch (err) {
-                  // MediaElementSource can only be created once per element
                   console.warn('Could not capture video audio:', err);
                 }
               }
@@ -1325,9 +1342,17 @@ export default function App() {
           audioSource.disconnect();
         }
         videoAudioSources.forEach(s => s.disconnect());
-        // Re-mute videos after export
+        // Cleanup audio clones and reset video elements
         items.forEach(item => {
-          if (item.type === 'video') (item.element as HTMLVideoElement).muted = true;
+          if (item.type === 'video') {
+            const clone = (item as any)._audioClone as HTMLVideoElement | undefined;
+            if (clone) {
+              clone.pause();
+              clone.src = '';
+            }
+            delete (item as any)._audioClone;
+            (item.element as HTMLVideoElement).pause();
+          }
         });
         if (audioCtx) {
           audioCtx.close();
@@ -1415,7 +1440,12 @@ export default function App() {
         }
         videoAudioSources.forEach(s => s.disconnect());
         items.forEach(item => {
-          if (item.type === 'video') (item.element as HTMLVideoElement).muted = true;
+          if (item.type === 'video') {
+            const clone = (item as any)._audioClone as HTMLVideoElement | undefined;
+            if (clone) { clone.pause(); clone.src = ''; }
+            delete (item as any)._audioClone;
+            (item.element as HTMLVideoElement).pause();
+          }
         });
         if (audioCtx) {
           audioCtx.close();
@@ -1472,6 +1502,8 @@ export default function App() {
               items.forEach((item, idx) => {
                 if (item.type === 'video' && idx !== i && idx !== i + 1) {
                   (item.element as HTMLVideoElement).pause();
+                  const clone = (item as any)._audioClone as HTMLVideoElement | undefined;
+                  if (clone) clone.pause();
                 }
               });
               break;
@@ -1498,15 +1530,24 @@ export default function App() {
                const trimEnd = item.trimEnd || item.originalDuration;
                const trimDuration = trimEnd - trimStart;
                const idealVideoTime = trimStart + localT * trimDuration;
-               
+               const audioClone = (item as any)._audioClone as HTMLVideoElement | undefined;
+
                if (!seekedItems.has(item.id)) {
                  video.currentTime = idealVideoTime;
                  seekedItems.add(item.id);
                  video.play().catch(() => {});
+                 // Sync audio clone
+                 if (audioClone) {
+                   audioClone.currentTime = idealVideoTime;
+                   audioClone.play().catch(() => {});
+                 }
                }
-               
+
                if (video.paused && t < timing.end) {
                  video.play().catch(() => {});
+                 if (audioClone && audioClone.paused) {
+                   audioClone.play().catch(() => {});
+                 }
                }
             }
 
@@ -1738,6 +1779,32 @@ export default function App() {
           alert("Fehler beim Rendern: " + (err as Error).message);
         }
       };
+
+      // Pre-render first frame before starting recorder to avoid black frame
+      const firstItem = items[0];
+      if (firstItem) {
+        const el = firstItem.element;
+        if (firstItem.type === 'video') {
+          const video = el as HTMLVideoElement;
+          video.currentTime = firstItem.trimStart || 0;
+          await new Promise<void>(resolve => {
+            const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
+            video.addEventListener('seeked', onSeeked);
+            setTimeout(resolve, 500); // fallback
+          });
+        }
+        // Draw the first item onto canvas
+        const mediaWidth = firstItem.type === 'video' ? (el as HTMLVideoElement).videoWidth : (el as HTMLImageElement).width;
+        const mediaHeight = firstItem.type === 'video' ? (el as HTMLVideoElement).videoHeight : (el as HTMLImageElement).height;
+        if (mediaWidth > 0 && mediaHeight > 0) {
+          const scale = Math.max(canvas.width / mediaWidth, canvas.height / mediaHeight);
+          const dx = (canvas.width - mediaWidth * scale) / 2;
+          const dy = (canvas.height - mediaHeight * scale) / 2;
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(el, dx, dy, mediaWidth * scale, mediaHeight * scale);
+        }
+      }
 
       recorder.start();
       // Initial draw to avoid black first frame
@@ -2959,7 +3026,7 @@ export default function App() {
               className="relative bg-zinc-900 border border-zinc-800/80 rounded-3xl shadow-2xl p-8 flex flex-col items-center gap-4"
             >
               <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-              <p className="text-sm text-zinc-400">Fotos werden importiert...</p>
+              <p className="text-sm text-zinc-400">{googlePhotosStatus || 'Fotos werden importiert...'}</p>
             </motion.div>
           </div>
         )}
