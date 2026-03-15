@@ -1180,6 +1180,7 @@ export default function App() {
       const photos = result.photos;
 
       if (photos.length === 0) {
+        setGooglePhotosError('Keine Fotos gefunden. Videos werden von Google Fotos leider nicht unterstützt – bitte nur Bilder auswählen.');
         setGooglePhotosLoading(false);
         return;
       }
