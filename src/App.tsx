@@ -1398,6 +1398,8 @@ export default function App() {
 
       const TRANSITION = 1000;
       const seekedItems = new Set<string>();
+      let lastUIUpdate = 0;
+      const UI_UPDATE_INTERVAL = 250; // Only update React state every 250ms
       
       let totalDuration = 0;
       const timings = items.map((item, i) => {
@@ -1456,10 +1458,60 @@ export default function App() {
         gainNode.gain.linearRampToValueAtTime(0, now + videoDurationSec);
       }
 
+      // Pre-compute title overlay data per item (avoid recalculating every frame)
+      const titleOverlayData = showTitleOverlay ? (() => {
+        const isLandscape = orientation === 'landscape';
+        const fontSize = isLandscape ? 48 : 64;
+        const fontStr = `300 ${fontSize}px "Outfit", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+        const paddingX = isLandscape ? 24 : 32;
+        const paddingY = isLandscape ? 16 : 24;
+        const maxWidth = canvas.width * 0.8;
+        const lineHeight = fontSize * 1.2;
+        const xPos = 30;
+
+        ctx.font = fontStr;
+        ctx.textBaseline = 'top';
+
+        return items.map(item => {
+          const title = item.customTitle !== undefined ? item.customTitle : projectTitle;
+          if (!title) return null;
+
+          const words = title.split(' ');
+          let line = '';
+          const lines: string[] = [];
+          for (let n = 0; n < words.length; n++) {
+            const testLine = line + words[n] + ' ';
+            if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+              lines.push(line);
+              line = words[n] + ' ';
+            } else {
+              line = testLine;
+            }
+          }
+          lines.push(line);
+
+          let maxLineWidth = 0;
+          lines.forEach(l => {
+            const w = ctx.measureText(l).width;
+            if (w > maxLineWidth) maxLineWidth = w;
+          });
+
+          const boxWidth = maxLineWidth + paddingX * 2;
+          const boxHeight = lines.length * lineHeight + paddingY * 2;
+          const yPos = canvas.height - (isLandscape ? 40 : 60) - boxHeight;
+
+          const { r, g, b } = item.dominantColor || { r: 20, g: 20, b: 20 };
+          const r1 = Math.max(0, r - 50), g1 = Math.max(0, g - 50), b1 = Math.max(0, b - 50);
+
+          return { lines: lines.map(l => l.trim()), boxWidth, boxHeight, xPos, yPos, paddingX, paddingY, lineHeight, fontSize, fontStr, r1, g1, b1 };
+        });
+      })() : null;
+
       let startTime: number | null = null;
       let generationStartTime = Date.now();
       let animationFrame: number;
       let cancelled = false;
+      let lastActiveIdx = -1;
 
       // Store cancel function
       cancelGenerationRef.current = () => {
@@ -1502,6 +1554,7 @@ export default function App() {
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           let activeItem = null;
+          let activeItemIdx = 0;
           let nextItem = null;
 
           // Find active and next items for transition
@@ -1509,6 +1562,7 @@ export default function App() {
             const timing = timings[i];
             if (t >= timing.start && t <= timing.end) {
               activeItem = items[i];
+              activeItemIdx = i;
               // Check if we are in transition with next item
               if (i < items.length - 1 && t > timings[i+1].start) {
                 nextItem = items[i+1];
@@ -1525,14 +1579,17 @@ export default function App() {
                 renderItem(nextItem, i + 1, nextLocalT, nextTiming, t);
               }
 
-              // Pause all other videos to save CPU
-              items.forEach((item, idx) => {
-                if (item.type === 'video' && idx !== i && idx !== i + 1) {
-                  (item.element as HTMLVideoElement).pause();
-                  const clone = (item as any)._audioClone as HTMLVideoElement | undefined;
-                  if (clone) clone.pause();
-                }
-              });
+              // Pause other videos (only when active item changes)
+              if (lastActiveIdx !== i) {
+                lastActiveIdx = i;
+                items.forEach((item, idx) => {
+                  if (item.type === 'video' && idx !== i && idx !== i + 1) {
+                    (item.element as HTMLVideoElement).pause();
+                    const clone = (item as any)._audioClone as HTMLVideoElement | undefined;
+                    if (clone) clone.pause();
+                  }
+                });
+              }
               break;
             }
           }
@@ -1636,141 +1693,78 @@ export default function App() {
             }
             ctx.globalAlpha = opacity;
             ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
+            ctx.imageSmoothingQuality = 'medium';
             
             ctx.drawImage(element, currentDx, currentDy, mediaWidth * currentScale, mediaHeight * currentScale);
           }
 
-          // Draw title overlay
-          if (activeItem && showTitleOverlay) {
-            const currentTitle = (activeItem as PlaylistItem).customTitle !== undefined ? (activeItem as PlaylistItem).customTitle : projectTitle;
-            
-            if (currentTitle) {
+          // Draw title overlay (using pre-computed data)
+          if (activeItem && titleOverlayData) {
+            const td = titleOverlayData[activeItemIdx];
+            if (td) {
               ctx.globalAlpha = 1;
-              const isLandscape = orientation === 'landscape';
-              const fontSize = isLandscape ? 48 : 64;
-              // Modern, thinner font - Outfit
-              ctx.font = `300 ${fontSize}px "Outfit", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+              ctx.font = td.fontStr;
               ctx.textBaseline = 'top';
-              
-              const paddingX = isLandscape ? 24 : 32;
-              const paddingY = isLandscape ? 16 : 24;
-              const maxWidth = canvas.width * 0.8;
-              const lineHeight = fontSize * 1.2;
 
-              // Text Wrapping Logic
-              const words = currentTitle.split(' ');
-              let line = '';
-              const lines = [];
-
-              for (let n = 0; n < words.length; n++) {
-                const testLine = line + words[n] + ' ';
-                const metrics = ctx.measureText(testLine);
-                const testWidth = metrics.width;
-                if (testWidth > maxWidth && n > 0) {
-                  lines.push(line);
-                  line = words[n] + ' ';
-                } else {
-                  line = testLine;
-                }
-              }
-              lines.push(line);
-
-              // Calculate box dimensions based on lines
-              let maxLineWidth = 0;
-              lines.forEach(l => {
-                const m = ctx.measureText(l);
-                if (m.width > maxLineWidth) maxLineWidth = m.width;
-              });
-
-              const boxWidth = maxLineWidth + paddingX * 2;
-              const boxHeight = (lines.length * lineHeight) + paddingY * 2;
-              
-              // Position: Bottom Left, closer to edge
-              const x = isLandscape ? 30 : 30;
-              const y = canvas.height - (isLandscape ? 40 : 60) - boxHeight;
-              
-              // Draw Shadow for the box - Disabled during generation for performance
-              // ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-              // ctx.shadowBlur = 15;
-              // ctx.shadowOffsetX = 0;
-              // ctx.shadowOffsetY = 6;
-              
-              // Background Gradient - Dynamic based on image
-              const { r, g, b } = (activeItem as PlaylistItem).dominantColor || { r: 20, g: 20, b: 20 };
-              const gradient = ctx.createLinearGradient(x, y, x, y + boxHeight);
-              // Darken the dominant color for better text contrast
-              const r1 = Math.max(0, r - 50);
-              const g1 = Math.max(0, g - 50);
-              const b1 = Math.max(0, b - 50);
-              
-              gradient.addColorStop(0, `rgba(${r1}, ${g1}, ${b1}, 0.6)`);
-              gradient.addColorStop(1, `rgba(${Math.max(0, r1-30)}, ${Math.max(0, g1-30)}, ${Math.max(0, b1-30)}, 0.8)`);
+              // Background gradient
+              const gradient = ctx.createLinearGradient(td.xPos, td.yPos, td.xPos, td.yPos + td.boxHeight);
+              gradient.addColorStop(0, `rgba(${td.r1}, ${td.g1}, ${td.b1}, 0.6)`);
+              gradient.addColorStop(1, `rgba(${Math.max(0, td.r1-30)}, ${Math.max(0, td.g1-30)}, ${Math.max(0, td.b1-30)}, 0.8)`);
               ctx.fillStyle = gradient;
-              
-              // Manual Rounded Rect
+
+              // Rounded rect
               const radius = 16;
               ctx.beginPath();
-              ctx.moveTo(x + radius, y);
-              ctx.lineTo(x + boxWidth - radius, y);
-              ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + radius);
-              ctx.lineTo(x + boxWidth, y + boxHeight - radius);
-              ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - radius, y + boxHeight);
-              ctx.lineTo(x + radius, y + boxHeight);
-              ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
-              ctx.lineTo(x, y + radius);
-              ctx.quadraticCurveTo(x, y, x + radius, y);
+              ctx.moveTo(td.xPos + radius, td.yPos);
+              ctx.lineTo(td.xPos + td.boxWidth - radius, td.yPos);
+              ctx.quadraticCurveTo(td.xPos + td.boxWidth, td.yPos, td.xPos + td.boxWidth, td.yPos + radius);
+              ctx.lineTo(td.xPos + td.boxWidth, td.yPos + td.boxHeight - radius);
+              ctx.quadraticCurveTo(td.xPos + td.boxWidth, td.yPos + td.boxHeight, td.xPos + td.boxWidth - radius, td.yPos + td.boxHeight);
+              ctx.lineTo(td.xPos + radius, td.yPos + td.boxHeight);
+              ctx.quadraticCurveTo(td.xPos, td.yPos + td.boxHeight, td.xPos, td.yPos + td.boxHeight - radius);
+              ctx.lineTo(td.xPos, td.yPos + radius);
+              ctx.quadraticCurveTo(td.xPos, td.yPos, td.xPos + radius, td.yPos);
               ctx.closePath();
               ctx.fill();
-              
-              // Border (Inner glow effect) - More subtle
-              ctx.shadowColor = 'transparent';
+
               ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
               ctx.lineWidth = 1;
               ctx.stroke();
-              
+
               // Text
               ctx.fillStyle = '#ffffff';
-              // ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-              // ctx.shadowBlur = 4;
-              // ctx.shadowOffsetX = 0;
-              // ctx.shadowOffsetY = 2;
-              
-              // Draw lines
-              lines.forEach((l, i) => {
-                ctx.fillText(l.trim(), x + paddingX, y + paddingY + (i * lineHeight));
+              td.lines.forEach((l, i) => {
+                ctx.fillText(l, td.xPos + td.paddingX, td.yPos + td.paddingY + i * td.lineHeight);
               });
-              
-              // Reset
-              ctx.shadowColor = 'transparent';
-              ctx.shadowBlur = 0;
-              ctx.shadowOffsetX = 0;
-              ctx.shadowOffsetY = 0;
             }
           }
 
-          // Calculate per-image progress
-          let currentImageProgress = 0;
-          let activeIdx = 0;
-          for (let i = 0; i < timings.length; i++) {
-            if (t >= timings[i].start && t <= timings[i].end) {
-              activeIdx = i;
-              currentImageProgress = ((t - timings[i].start) / timings[i].duration) * 100;
-              break;
-            }
-          }
-          
-          setCurrentItemIndex(prev => prev !== activeIdx ? activeIdx : prev);
-          const roundedProgress = Math.round(currentImageProgress);
-          setProgress(prev => prev !== roundedProgress ? roundedProgress : prev);
+          // Throttle UI updates to avoid React re-renders blocking the draw loop
+          const now = performance.now();
+          if (now - lastUIUpdate > UI_UPDATE_INTERVAL) {
+            lastUIUpdate = now;
 
-          // Estimated time remaining
-          const elapsedRealTime = Date.now() - generationStartTime;
-          if (t > 500 && elapsedRealTime > 500) {
-            const generationSpeed = t / elapsedRealTime;
-            const remainingVideoTime = totalDuration - t;
-            const estimatedRealTimeRemaining = Math.round((remainingVideoTime / generationSpeed) / 1000);
-            setEstimatedTimeRemaining(prev => prev !== estimatedRealTimeRemaining ? estimatedRealTimeRemaining : prev);
+            let currentImageProgress = 0;
+            let activeIdx = 0;
+            for (let i = 0; i < timings.length; i++) {
+              if (t >= timings[i].start && t <= timings[i].end) {
+                activeIdx = i;
+                currentImageProgress = ((t - timings[i].start) / timings[i].duration) * 100;
+                break;
+              }
+            }
+
+            setCurrentItemIndex(prev => prev !== activeIdx ? activeIdx : prev);
+            const roundedProgress = Math.round(currentImageProgress);
+            setProgress(prev => prev !== roundedProgress ? roundedProgress : prev);
+
+            const elapsedRealTime = Date.now() - generationStartTime;
+            if (t > 500 && elapsedRealTime > 500) {
+              const generationSpeed = t / elapsedRealTime;
+              const remainingVideoTime = totalDuration - t;
+              const estimatedRealTimeRemaining = Math.round((remainingVideoTime / generationSpeed) / 1000);
+              setEstimatedTimeRemaining(prev => prev !== estimatedRealTimeRemaining ? estimatedRealTimeRemaining : prev);
+            }
           }
 
           if (t < totalDuration) {
