@@ -1246,6 +1246,7 @@ export default function App() {
       canvas.width = res.w;
       canvas.height = res.h;
 
+      const CAPTURE_FPS = 30;
       const captureStreamFn = canvas.captureStream || (canvas as any).mozCaptureStream || (canvas as any).webkitCaptureStream;
       if (!captureStreamFn) {
         throw new Error("Video-Aufnahme wird von diesem Browser nicht unterstützt.");
@@ -1396,7 +1397,6 @@ export default function App() {
       };
 
       const TRANSITION = 1000;
-      const CAPTURE_FPS = 30;
       const seekedItems = new Set<string>();
       
       let totalDuration = 0;
