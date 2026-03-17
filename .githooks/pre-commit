@@ -1,0 +1,33 @@
+#!/bin/sh
+# Auto-increment version on each commit
+
+VERSION_FILE="src/version.ts"
+
+if [ ! -f "$VERSION_FILE" ]; then
+  exit 0
+fi
+
+# Read current version
+CURRENT_VERSION=$(grep "APP_VERSION" "$VERSION_FILE" | sed "s/.*'\(.*\)'.*/\1/")
+
+# Split version into parts
+MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
+MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
+PATCH=$(echo "$CURRENT_VERSION" | cut -d. -f3)
+
+# Increment patch
+PATCH=$((PATCH + 1))
+NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+# Get current date
+BUILD_DATE=$(date +%Y-%m-%d)
+
+# Update version file
+cat > "$VERSION_FILE" << EOF
+// Auto-updated by pre-commit hook
+export const APP_VERSION = '${NEW_VERSION}';
+export const APP_BUILD_DATE = '${BUILD_DATE}';
+EOF
+
+# Stage the updated file
+git add "$VERSION_FILE"

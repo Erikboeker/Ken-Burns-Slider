@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Play, Pause, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown, Volume2, StopCircle, Move, CloudDownload, LogOut } from 'lucide-react';
+import { Upload, Play, Pause, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown, Volume2, StopCircle, Move, CloudDownload, LogOut, Info } from 'lucide-react';
+import { APP_VERSION, APP_BUILD_DATE } from './version';
 import { AnimatePresence, motion } from 'motion/react';
 import { db, type Project } from './services/storage';
 import * as googlePhotos from './services/googlePhotos';
@@ -855,6 +856,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   
   const savedProjects = useLiveQuery(() => db.projects.toArray());
   
@@ -2344,6 +2346,13 @@ export default function App() {
             >
               <Settings className="w-4 h-4" />
             </button>
+            <button
+              onClick={() => setIsInfoOpen(true)}
+              className="text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/60 flex items-center gap-2 transition-all p-2 rounded-lg"
+              title="App-Info"
+            >
+              <Info className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Mobile menu button */}
@@ -2390,6 +2399,12 @@ export default function App() {
                   className="w-full text-left text-sm text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center gap-3 transition-all px-3 py-2.5 rounded-lg"
                 >
                   <Settings className="w-4 h-4" /> Projekteinstellungen
+                </button>
+                <button
+                  onClick={() => { setIsInfoOpen(true); setIsMobileMenuOpen(false); }}
+                  className="w-full text-left text-sm text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/60 flex items-center gap-3 transition-all px-3 py-2.5 rounded-lg"
+                >
+                  <Info className="w-4 h-4" /> App-Info
                 </button>
               </div>
             </motion.div>
@@ -3049,6 +3064,49 @@ export default function App() {
               <p className="text-sm text-zinc-400">{googlePhotosStatus || 'Fotos werden importiert...'}</p>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Info Modal */}
+      <AnimatePresence>
+        {isInfoOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={() => setIsInfoOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-500/15 rounded-xl flex items-center justify-center">
+                    <Film className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <h3 className="font-semibold text-base">Ken Burns Studio</h3>
+                </div>
+                <button onClick={() => setIsInfoOpen(false)} className="text-zinc-500 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between items-center py-2 px-3 bg-zinc-800/50 rounded-lg">
+                  <span className="text-zinc-400">Version</span>
+                  <span className="text-white font-mono font-medium">{APP_VERSION}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 px-3 bg-zinc-800/50 rounded-lg">
+                  <span className="text-zinc-400">Build-Datum</span>
+                  <span className="text-white font-mono font-medium">{APP_BUILD_DATE}</span>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
