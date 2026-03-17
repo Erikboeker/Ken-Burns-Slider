@@ -588,9 +588,9 @@ function ImageEditor({
 
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
         <div className="relative w-full h-[40vh] min-h-[300px] bg-zinc-900 rounded-lg flex items-center justify-center p-4 overflow-hidden">
-          <div 
+          <div
             ref={containerRef}
-            className="relative shadow-2xl overflow-hidden bg-black/20" 
+            className="relative shadow-2xl bg-black/20"
             style={{ 
               aspectRatio: `${mediaWidth} / ${mediaHeight}`, 
               maxHeight: '100%', 
@@ -661,10 +661,10 @@ function ImageEditor({
                   {(() => {
                     const borderColor = mode === 'pan' ? (panEditTarget === 'start' ? 'border-emerald-500' : 'border-orange-500') : 'border-indigo-500';
                     return (<>
-                      <div className={`absolute -top-1.5 -left-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'top-left')} />
-                      <div className={`absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'top-right')} />
-                      <div className={`absolute -bottom-1.5 -left-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'bottom-left')} />
-                      <div className={`absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-white border-2 ${borderColor} rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform`} onPointerDown={(e) => handlePointerDown(e, 'bottom-right')} />
+                      <div className={`absolute -top-2.5 -left-2.5 w-5 h-5 bg-white border-2 ${borderColor} rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform touch-none`} style={{touchAction:'none'}} onPointerDown={(e) => handlePointerDown(e, 'top-left')} />
+                      <div className={`absolute -top-2.5 -right-2.5 w-5 h-5 bg-white border-2 ${borderColor} rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform touch-none`} style={{touchAction:'none'}} onPointerDown={(e) => handlePointerDown(e, 'top-right')} />
+                      <div className={`absolute -bottom-2.5 -left-2.5 w-5 h-5 bg-white border-2 ${borderColor} rounded-full cursor-nesw-resize z-10 shadow-sm hover:scale-125 transition-transform touch-none`} style={{touchAction:'none'}} onPointerDown={(e) => handlePointerDown(e, 'bottom-left')} />
+                      <div className={`absolute -bottom-2.5 -right-2.5 w-5 h-5 bg-white border-2 ${borderColor} rounded-full cursor-nwse-resize z-10 shadow-sm hover:scale-125 transition-transform touch-none`} style={{touchAction:'none'}} onPointerDown={(e) => handlePointerDown(e, 'bottom-right')} />
                     </>);
                   })()}
                 </div>
