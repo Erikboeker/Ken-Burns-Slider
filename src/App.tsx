@@ -1537,18 +1537,9 @@ export default function App() {
           const { r, g, b } = item.dominantColor || { r: 20, g: 20, b: 20 };
           const r1 = Math.max(0, r - 50), g1 = Math.max(0, g - 50), b1 = Math.max(0, b - 50);
 
-          // Pre-compute gradient and color strings to avoid per-frame allocation
-          const gradient = ctx.createLinearGradient(xPos, yPos, xPos, yPos + boxHeight);
-          gradient.addColorStop(0, `rgba(${r1}, ${g1}, ${b1}, 0.6)`);
-          gradient.addColorStop(1, `rgba(${Math.max(0, r1-30)}, ${Math.max(0, g1-30)}, ${Math.max(0, b1-30)}, 0.8)`);
-
-          return { lines: lines.map(l => l.trim()), boxWidth, boxHeight, xPos, yPos, paddingX, paddingY, lineHeight, fontSize, fontStr, gradient };
+          return { lines: lines.map(l => l.trim()), boxWidth, boxHeight, xPos, yPos, paddingX, paddingY, lineHeight, fontSize, fontStr, r1, g1, b1 };
         });
       })() : null;
-
-      // Set once before the animation loop to avoid per-frame overhead
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'medium';
 
       let startTime: number | null = null;
       let generationStartTime = Date.now();
@@ -1735,6 +1726,9 @@ export default function App() {
               opacity = (t - timing.start) / TRANSITION;
             }
             ctx.globalAlpha = opacity;
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'medium';
+
             ctx.drawImage(element, currentDx, currentDy, mediaWidth * currentScale, mediaHeight * currentScale);
           }
 
@@ -1746,8 +1740,11 @@ export default function App() {
               ctx.font = td.fontStr;
               ctx.textBaseline = 'top';
 
-              // Use pre-computed gradient
-              ctx.fillStyle = td.gradient;
+              // Background gradient
+              const gradient = ctx.createLinearGradient(td.xPos, td.yPos, td.xPos, td.yPos + td.boxHeight);
+              gradient.addColorStop(0, `rgba(${td.r1}, ${td.g1}, ${td.b1}, 0.6)`);
+              gradient.addColorStop(1, `rgba(${Math.max(0, td.r1-30)}, ${Math.max(0, td.g1-30)}, ${Math.max(0, td.b1-30)}, 0.8)`);
+              ctx.fillStyle = gradient;
 
               // Rounded rect
               const radius = 16;
