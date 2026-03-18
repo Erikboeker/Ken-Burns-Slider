@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Play, Pause, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown, Volume2, StopCircle, Move, CloudDownload, LogOut, Info } from 'lucide-react';
+import { Upload, Play, Pause, Download, Trash2, Image as ImageIcon, Film, Loader2, ZoomIn, ZoomOut, Check, Crop, X, Settings, Smartphone, Monitor, Music, PlusCircle, GripVertical, Square, Instagram, Save, FolderOpen, Menu, ChevronDown, Volume2, StopCircle, Move, CloudDownload, LogOut, Info, CopyCheck } from 'lucide-react';
 import { APP_VERSION, APP_BUILD_DATE } from './version';
 import { AnimatePresence, motion } from 'motion/react';
 import { db, type Project } from './services/storage';
@@ -115,23 +115,25 @@ const getSupportedMimeType = (format: ExportFormat) => {
   return '';
 };
 
-function ImageEditor({ 
-  item, 
-  projectTitle, 
-  orientation, 
-  customWidth, 
-  customHeight, 
-  onSave, 
-  onCancel 
-}: { 
-  item: PlaylistItem, 
-  projectTitle: string, 
-  orientation: Orientation, 
-  customWidth: number, 
-  customHeight: number, 
-  onSave: (item: PlaylistItem) => void, 
-  onCancel: () => void, 
-  key?: string | number 
+function ImageEditor({
+  item,
+  projectTitle,
+  orientation,
+  customWidth,
+  customHeight,
+  onSave,
+  onCancel,
+  onCopyTitleToFollowing
+}: {
+  item: PlaylistItem,
+  projectTitle: string,
+  orientation: Orientation,
+  customWidth: number,
+  customHeight: number,
+  onSave: (item: PlaylistItem) => void,
+  onCancel: () => void,
+  onCopyTitleToFollowing?: (title: string | undefined) => void,
+  key?: string | number
 }) {
   const [rect, setRect] = useState(item.rect);
   const [mode, setMode] = useState(item.mode);
@@ -583,6 +585,14 @@ function ImageEditor({
           />
           {!useDefaultTitle && customTitle === '' && (
             <p className="text-xs text-amber-500/80">Kein Titel wird angezeigt.</p>
+          )}
+          {onCopyTitleToFollowing && (
+            <button
+              onClick={() => onCopyTitleToFollowing(useDefaultTitle ? undefined : customTitle)}
+              className="w-full text-left text-xs text-zinc-400 hover:text-indigo-400 hover:bg-indigo-500/10 flex items-center gap-2 transition-all px-3 py-2 rounded-lg border border-zinc-800 hover:border-indigo-500/30"
+            >
+              <CopyCheck className="w-3.5 h-3.5" /> Titel auf alle folgenden Bilder übertragen
+            </button>
           )}
         </div>
       </div>
@@ -1231,6 +1241,18 @@ export default function App() {
     setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
   }, []);
 
+  const handleCopyTitleToFollowing = useCallback((title: string | undefined) => {
+    if (!editingId) return;
+    setItems(prev => {
+      const idx = prev.findIndex(i => i.id === editingId);
+      if (idx === -1) return prev;
+      return prev.map((item, i) => {
+        if (i <= idx) return item;
+        return { ...item, customTitle: title };
+      });
+    });
+  }, [editingId]);
+
   const generateVideo = async () => {
     if (items.length === 0 || !canvasRef.current) return;
     setStatus('generating');
@@ -1505,9 +1527,18 @@ export default function App() {
           const { r, g, b } = item.dominantColor || { r: 20, g: 20, b: 20 };
           const r1 = Math.max(0, r - 50), g1 = Math.max(0, g - 50), b1 = Math.max(0, b - 50);
 
-          return { lines: lines.map(l => l.trim()), boxWidth, boxHeight, xPos, yPos, paddingX, paddingY, lineHeight, fontSize, fontStr, r1, g1, b1 };
+          // Pre-compute gradient and color strings to avoid per-frame allocation
+          const gradient = ctx.createLinearGradient(xPos, yPos, xPos, yPos + boxHeight);
+          gradient.addColorStop(0, `rgba(${r1}, ${g1}, ${b1}, 0.6)`);
+          gradient.addColorStop(1, `rgba(${Math.max(0, r1-30)}, ${Math.max(0, g1-30)}, ${Math.max(0, b1-30)}, 0.8)`);
+
+          return { lines: lines.map(l => l.trim()), boxWidth, boxHeight, xPos, yPos, paddingX, paddingY, lineHeight, fontSize, fontStr, gradient };
         });
       })() : null;
+
+      // Set once before the animation loop to avoid per-frame overhead
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'medium';
 
       let startTime: number | null = null;
       let generationStartTime = Date.now();
@@ -1694,9 +1725,6 @@ export default function App() {
               opacity = (t - timing.start) / TRANSITION;
             }
             ctx.globalAlpha = opacity;
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'medium';
-            
             ctx.drawImage(element, currentDx, currentDy, mediaWidth * currentScale, mediaHeight * currentScale);
           }
 
@@ -1708,11 +1736,8 @@ export default function App() {
               ctx.font = td.fontStr;
               ctx.textBaseline = 'top';
 
-              // Background gradient
-              const gradient = ctx.createLinearGradient(td.xPos, td.yPos, td.xPos, td.yPos + td.boxHeight);
-              gradient.addColorStop(0, `rgba(${td.r1}, ${td.g1}, ${td.b1}, 0.6)`);
-              gradient.addColorStop(1, `rgba(${Math.max(0, td.r1-30)}, ${Math.max(0, td.g1-30)}, ${Math.max(0, td.b1-30)}, 0.8)`);
-              ctx.fillStyle = gradient;
+              // Use pre-computed gradient
+              ctx.fillStyle = td.gradient;
 
               // Rounded rect
               const radius = 16;
@@ -1828,7 +1853,7 @@ export default function App() {
         }
       }
 
-      recorder.start();
+      recorder.start(1000); // Flush data every 1s to reduce memory pressure
       // Initial draw to avoid black first frame
       draw(performance.now());
     } catch (err) {
@@ -2747,6 +2772,7 @@ export default function App() {
                   customHeight={customHeight}
                   onSave={handleSaveEdit}
                   onCancel={() => setEditingId(null)}
+                  onCopyTitleToFollowing={handleCopyTitleToFollowing}
                 />
               </div>
             </motion.div>
