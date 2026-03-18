@@ -1586,20 +1586,10 @@ export default function App() {
         cancelGenerationRef.current = null;
       };
 
-      const FRAME_INTERVAL = 1000 / CAPTURE_FPS; // ~33ms for 30fps
-      let lastFrameTime = 0;
-
       const draw = (timestamp: number) => {
         try {
           if (cancelled) return;
           if (!startTime) startTime = timestamp;
-
-          // Throttle to match capture FPS to avoid unnecessary rendering
-          if (timestamp - lastFrameTime < FRAME_INTERVAL) {
-            animationFrame = requestAnimationFrame(draw);
-            return;
-          }
-          lastFrameTime = timestamp;
 
           const t = timestamp - startTime;
 
