@@ -147,6 +147,7 @@ function ImageEditor({
   const [panEnd, setPanEnd] = useState<Rect>(item.panEnd ?? item.rect);
   const [panEditTarget, setPanEditTarget] = useState<'start' | 'end'>('start');
   const [musicVolume, setMusicVolume] = useState<number>(item.musicVolume ?? 100);
+  const [titleCopied, setTitleCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number, startY: number, startRect: Rect, type: 'move' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -588,10 +589,19 @@ function ImageEditor({
           )}
           {onCopyTitleToFollowing && (
             <button
-              onClick={() => onCopyTitleToFollowing(useDefaultTitle ? undefined : customTitle)}
-              className="w-full text-left text-xs text-zinc-400 hover:text-indigo-400 hover:bg-indigo-500/10 flex items-center gap-2 transition-all px-3 py-2 rounded-lg border border-zinc-800 hover:border-indigo-500/30"
+              onClick={() => {
+                onCopyTitleToFollowing(useDefaultTitle ? undefined : customTitle);
+                setTitleCopied(true);
+                setTimeout(() => setTitleCopied(false), 2000);
+              }}
+              disabled={titleCopied}
+              className={`w-full text-left text-xs flex items-center gap-2 transition-all px-3 py-2 rounded-lg border ${titleCopied ? 'text-green-400 bg-green-500/10 border-green-500/30' : 'text-zinc-400 hover:text-indigo-400 hover:bg-indigo-500/10 border-zinc-800 hover:border-indigo-500/30'}`}
             >
-              <CopyCheck className="w-3.5 h-3.5" /> Titel auf alle folgenden Bilder übertragen
+              {titleCopied ? (
+                <><Check className="w-3.5 h-3.5" /> Titel wurde übertragen!</>
+              ) : (
+                <><CopyCheck className="w-3.5 h-3.5" /> Titel auf alle folgenden Bilder übertragen</>
+              )}
             </button>
           )}
         </div>
@@ -1576,10 +1586,20 @@ export default function App() {
         cancelGenerationRef.current = null;
       };
 
+      const FRAME_INTERVAL = 1000 / CAPTURE_FPS; // ~33ms for 30fps
+      let lastFrameTime = 0;
+
       const draw = (timestamp: number) => {
         try {
           if (cancelled) return;
           if (!startTime) startTime = timestamp;
+
+          // Throttle to match capture FPS to avoid unnecessary rendering
+          if (timestamp - lastFrameTime < FRAME_INTERVAL) {
+            animationFrame = requestAnimationFrame(draw);
+            return;
+          }
+          lastFrameTime = timestamp;
 
           const t = timestamp - startTime;
 
@@ -1853,7 +1873,7 @@ export default function App() {
         }
       }
 
-      recorder.start(1000); // Flush data every 1s to reduce memory pressure
+      recorder.start();
       // Initial draw to avoid black first frame
       draw(performance.now());
     } catch (err) {
